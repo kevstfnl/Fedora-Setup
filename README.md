@@ -60,6 +60,7 @@ Les commentaires présents dans le fichier expliquent les conséquences des opti
 | Option | Effet |
 | --- | --- |
 | `AUTO_CONFIRM_SAFE_ACTIONS` | Confirme les installations ordinaires et répond automatiquement aux invites DNF/Flatpak correspondantes. Les opérations sensibles restent interactives. |
+| `AUTO_CONFIRM_ALL_ACTIONS` | Active le mode sans surveillance pour les confirmations sensibles et leurs transactions DNF. Ne contourne ni `sudo`, ni Secure Boot, ni les redémarrages de test CachyOS. |
 | `AUTO_REBOOT` | Autorise un redémarrage automatique après un délai de 10 secondes lorsqu'il est nécessaire. |
 | `NVIDIA_DRIVER` | `auto` choisit une branche RPM Fusion compatible ; `disabled` interdit l'installation du pilote propriétaire. |
 | `INSTALL_HARDWARE_CODECS` | Installe les codecs et l'accélération vidéo adaptés au matériel détecté. |
@@ -198,10 +199,12 @@ INSTALL_CACHYOS_ADDONS=true
 Le déroulement comprend plusieurs lancements volontaires :
 
 1. le script installe le noyau mais garde Fedora par défaut, puis s'arrête ;
-2. redémarrez et sélectionnez manuellement CachyOS dans GRUB ;
-3. exécutez `./fedora-setup.sh --resume` pour valider le noyau et installer les addons ;
-4. redémarrez une seconde fois sur CachyOS ;
-5. exécutez à nouveau `./fedora-setup.sh --resume` pour valider les addons et terminer la configuration.
+2. le script programme l'affichage de GRUB pour le prochain démarrage uniquement ;
+3. redémarrez et sélectionnez manuellement CachyOS dans GRUB ;
+4. si GRUB reste masqué par le firmware, maintenez la touche `Maj` gauche ou tapotez `F8` pendant le démarrage ;
+5. exécutez `./fedora-setup.sh --resume` pour valider le noyau et installer les addons ;
+6. redémarrez une seconde fois sur CachyOS ;
+7. exécutez à nouveau `./fedora-setup.sh --resume` pour valider les addons et terminer la configuration.
 
 Si Secure Boot est actif, le script s'arrête avant d'ajouter le dépôt ou d'installer le noyau. Il ne tente jamais de modifier les réglages UEFI.
 
