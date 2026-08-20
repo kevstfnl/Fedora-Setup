@@ -295,6 +295,63 @@ test_theme_value_comparison() {
   ok "la relecture GSettings tolère uniquement la normalisation numérique"
 }
 
+test_extension_validation_does_not_require_shell_cache() {
+  local original_home="$HOME"
+  HOME="$TEST_TMP/extension-home"
+  local uuid="test-extension@example.com"
+  local extension_dir="$HOME/.local/share/gnome-shell/extensions/$uuid"
+  mkdir -p "$extension_dir"
+  printf '%s\n' \
+    '{' \
+    '  "uuid": "test-extension@example.com",' \
+    '  "version": 72,' \
+    '  "shell-version": ["50"]' \
+    '}' >"$extension_dir/metadata.json"
+
+  theme_installed_extension_is_compatible "$uuid" 72 ||
+    fail "la validation doit lire metadata.json sans dépendre du cache GNOME Shell"
+  assert_fails "une version utilisateur différente du manifeste est refusée" \
+    theme_installed_extension_is_compatible "$uuid" 71
+  HOME="$original_home"
+  ok "les extensions fraîchement installées sont validées directement sur disque"
+}
+
+test_legacy_dark_mode_fallback() {
+  local original_profile="$THEME_GSETTINGS_PROFILE"
+  THEME_GSETTINGS_PROFILE="$TEST_TMP/legacy-dark.conf"
+  printf '%s\n' \
+    "org.gnome.desktop.interface|color-scheme|'prefer-dark'|" \
+    "org.gnome.desktop.interface|gtk-theme|'Adwaita'|" >"$THEME_GSETTINGS_PROFILE"
+  STATE_VALUES_DIR="$TEST_TMP/theme-values"
+  mkdir -p "$STATE_VALUES_DIR"
+  DRY_RUN=false
+  local applied_target=""
+
+  theme_schema_has_key() {
+    [[ "$2" != "color-scheme" ]]
+  }
+  theme_gsettings() {
+    local uuid="$1"
+    shift
+    case "$1" in
+      writable) printf 'true\n' ;;
+      get) printf "'Adwaita'\n" ;;
+      set) applied_target="${4}" ;;
+    esac
+  }
+  run_cmd() {
+    local description="$1"
+    shift
+    "$@"
+  }
+
+  apply_theme_gsettings >/dev/null
+  [[ "$applied_target" == "'Adwaita-dark'" ]] || fail "Adwaita-dark doit remplacer color-scheme lorsqu'il est absent"
+  [[ "$(state_get theme_legacy_dark)" == "true" ]] || fail "le repli sombre doit être enregistré pour la validation"
+  THEME_GSETTINGS_PROFILE="$original_profile"
+  ok "le mode sombre possède un repli compatible quand color-scheme est absent"
+}
+
 test_current_config
 test_invalid_configs
 test_entrypoints
@@ -308,5 +365,7 @@ test_preinstalled_cleanup_is_conditional
 test_theme_profiles_are_strict
 test_theme_zsh_block_preserves_user_content
 test_theme_value_comparison
+test_extension_validation_does_not_require_shell_cache
+test_legacy_dark_mode_fallback
 
 printf '1..%d\n' "$passed"

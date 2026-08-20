@@ -278,7 +278,6 @@ theme_validate_extension_archive() {
 theme_installed_extension_is_compatible() {
   local uuid="$1"
   local expected_version="$2"
-  gnome-extensions info "$uuid" >/dev/null 2>&1 || return 1
 
   local extension_dir metadata shell_major actual_uuid actual_version
   extension_dir="$(theme_extension_dir "$uuid")" || return 1
@@ -295,6 +294,32 @@ theme_installed_extension_is_compatible() {
   if [[ "$extension_dir" == "$HOME/.local/share/gnome-shell/extensions/$uuid" && "$expected_version" != "0" ]]; then
     [[ "$actual_version" == "$expected_version" ]] || return 1
   fi
+}
+
+theme_enable_extension() {
+  local uuid="$1"
+  local name="$2"
+
+  if gnome-extensions enable "$uuid" >>"$LOG_FILE" 2>&1; then
+    log_ok "Extension activée : $name"
+    return 0
+  fi
+
+  # Juste après une installation, GNOME Shell peut ne pas avoir encore
+  # actualisé son cache. Enregistrer alors l'UUID pour la prochaine connexion.
+  local enabled target
+  enabled="$(gsettings get org.gnome.shell enabled-extensions)" || return 1
+  if grep -Fq "'$uuid'" <<<"$enabled"; then
+    log_ok "Extension déjà programmée pour la prochaine connexion : $name"
+    return 0
+  fi
+  case "$enabled" in
+    "[]" | "@as []") target="['$uuid']" ;;
+    *']') target="${enabled%]}, '$uuid']" ;;
+    *) return 1 ;;
+  esac
+  run_cmd "Activation différée de l'extension $name" gsettings set org.gnome.shell enabled-extensions "$target" || return 1
+  log_warn "$name sera chargée après déconnexion/reconnexion de GNOME."
 }
 
 install_one_theme_extension() {
@@ -348,7 +373,7 @@ install_one_theme_extension() {
     elif gnome-extensions list --enabled | grep -Fxq "$uuid"; then
       log_ok "Extension déjà activée : $name"
     else
-      run_cmd "Activation de l'extension $name" gnome-extensions enable "$uuid" || return 1
+      theme_enable_extension "$uuid" "$name" || return 1
       state_set logout_required true || return 1
     fi
   fi
@@ -395,10 +420,16 @@ theme_values_equal() {
 
 apply_theme_gsettings() {
   local raw schema key target uuid extra current actual
+  local legacy_dark=false
+  local -a failures=()
   while IFS= read -r raw || [[ -n "$raw" ]]; do
     raw="${raw%$'\r'}"
     [[ -z "$raw" || "$raw" == \#* ]] && continue
     IFS='|' read -r schema key target uuid extra <<<"$raw"
+
+    if [[ "$schema.$key" == "org.gnome.desktop.interface.gtk-theme" && "$legacy_dark" == "true" ]]; then
+      target="'Adwaita-dark'"
+    fi
 
     if [[ "$schema.$key" == "org.gnome.mutter.edge-tiling" ]] &&
       ! gnome-extensions info tiling-assistant@leleat-on-github >/dev/null 2>&1; then
@@ -407,16 +438,24 @@ apply_theme_gsettings() {
     fi
 
     if ! theme_schema_has_key "$schema" "$key" "$uuid"; then
-      if [[ -n "$uuid" ]]; then
-        log_warn "Réglage d'extension ignoré car indisponible : $schema.$key ($uuid)"
+      if [[ "$schema.$key" == "org.gnome.desktop.interface.color-scheme" ]]; then
+        legacy_dark=true
+        state_set theme_legacy_dark true
+        log_warn "color-scheme est indisponible : utilisation du thème GTK Adwaita-dark compatible."
         continue
       fi
-      die "Réglage GNOME requis indisponible : $schema.$key"
-      return 1
+      if [[ -n "$uuid" ]]; then
+        log_warn "Réglage d'extension ignoré car indisponible : $schema.$key ($uuid)"
+      else
+        log_warn "Réglage GNOME ignoré car indisponible : $schema.$key"
+      fi
+      failures+=("$schema.$key")
+      continue
     fi
     if ! theme_gsettings "$uuid" writable "$schema" "$key" | grep -Fxq true; then
-      die "Réglage GNOME verrouillé par une politique : $schema.$key"
-      return 1
+      log_warn "Réglage GNOME verrouillé par une politique : $schema.$key"
+      failures+=("$schema.$key")
+      continue
     fi
 
     current="$(theme_gsettings "$uuid" get "$schema" "$key")"
@@ -427,13 +466,29 @@ apply_theme_gsettings() {
     log_info "Réglage GNOME : $schema.$key"
     log_info "  valeur actuelle : $current"
     log_info "  valeur cible     : $target"
-    run_cmd "Application de $schema.$key" theme_gsettings "$uuid" set "$schema" "$key" "$target"
+    if ! run_cmd "Application de $schema.$key" theme_gsettings "$uuid" set "$schema" "$key" "$target"; then
+      failures+=("$schema.$key")
+      continue
+    fi
     if ! is_true "$DRY_RUN"; then
       actual="$(theme_gsettings "$uuid" get "$schema" "$key")"
-      theme_values_equal "$target" "$actual" ||
-        die "Relecture différente pour $schema.$key : $actual"
+      if ! theme_values_equal "$target" "$actual"; then
+        log_warn "Relecture différente pour $schema.$key : $actual"
+        failures+=("$schema.$key")
+      fi
     fi
   done <"$THEME_GSETTINGS_PROFILE"
+
+  if [[ "$legacy_dark" != "true" ]]; then
+    state_set theme_legacy_dark false
+  fi
+  local failure_summary="" failure
+  for failure in "${failures[@]}"; do
+    [[ -z "$failure_summary" ]] || failure_summary+=", "
+    failure_summary+="$failure"
+  done
+  state_set theme_setting_failures "$failure_summary"
+  [[ -z "$failure_summary" ]] || log_warn "Réglages GNOME non appliqués : $failure_summary"
 }
 
 configure_theme_zsh() {
@@ -500,6 +555,10 @@ validate_theme_result() {
       [[ -z "$raw" || "$raw" == \#* ]] && continue
       IFS='|' read -r schema key target uuid extra <<<"$raw"
       theme_schema_has_key "$schema" "$key" "$uuid" || continue
+      if [[ "$schema.$key" == "org.gnome.desktop.interface.gtk-theme" &&
+        "$(state_get theme_legacy_dark false)" == "true" ]]; then
+        target="'Adwaita-dark'"
+      fi
       actual="$(theme_gsettings "$uuid" get "$schema" "$key")"
       theme_values_equal "$target" "$actual" || {
         die "Validation theme échouée : $schema.$key vaut $actual."
@@ -529,6 +588,9 @@ validate_theme_result() {
     [[ -z "$failures" ]] || log_warn "Profil terminé avec extensions à revoir : $failures"
     state_set logout_required true
   fi
+  local setting_failures
+  setting_failures="$(state_get theme_setting_failures)"
+  [[ -z "$setting_failures" ]] || log_warn "Profil terminé avec réglages GNOME à revoir : $setting_failures"
   log_ok "Validation du profil GNOME/Zsh terminée."
 }
 
@@ -566,6 +628,27 @@ reset_theme_checkpoints_if_needed() {
   done
 }
 
+reset_failed_theme_checkpoints() {
+  local failures
+  failures="$(state_get theme_extension_failures)"
+  [[ -n "$failures" ]] || return 0
+  log_warn "Nouvelle tentative des extensions précédemment en échec : $failures"
+  if is_true "$DRY_RUN"; then
+    log_info "[dry-run] Les checkpoints theme.extensions et theme.validate seraient réinitialisés."
+    return 0
+  fi
+
+  local step path
+  for step in theme.extensions theme.validate; do
+    path="$STATE_STEPS_DIR/$step"
+    [[ ! -e "$path" || (-f "$path" && ! -L "$path") ]] || {
+      die "Checkpoint theme non régulier : $path"
+      return 1
+    }
+    rm -f -- "$path"
+  done
+}
+
 stage_theme() {
   if [[ "$APPLY_THEME" != "true" && "$APPLY_GNOME_EXTENSIONS" != "true" && "$APPLY_ZSH_CONFIG" != "true" ]]; then
     log_info "Profil GNOME/Zsh désactivé dans la configuration."
@@ -573,6 +656,7 @@ stage_theme() {
   fi
 
   reset_theme_checkpoints_if_needed
+  reset_failed_theme_checkpoints
   run_step_once theme.preflight "Prévalidation du profil GNOME/Zsh" theme_preflight
   run_step_once theme.backup "Sauvegarde du profil utilisateur actuel" backup_theme_state
   run_if_enabled APPLY_GNOME_EXTENSIONS theme.extensions "Extensions GNOME du profil" install_theme_extensions
