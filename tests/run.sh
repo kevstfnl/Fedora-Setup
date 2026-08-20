@@ -352,6 +352,75 @@ test_legacy_dark_mode_fallback() {
   ok "le mode sombre possède un repli compatible quand color-scheme est absent"
 }
 
+test_theme_validation_retries_without_blocking() {
+  local original_profile="$THEME_GSETTINGS_PROFILE"
+  THEME_GSETTINGS_PROFILE="$TEST_TMP/theme-retry.conf"
+  printf '%s\n' 'org.gnome.desktop.interface|enable-hot-corners|false|' >"$THEME_GSETTINGS_PROFILE"
+  STATE_VALUES_DIR="$TEST_TMP/theme-retry-values"
+  mkdir -p "$STATE_VALUES_DIR"
+  DRY_RUN=false
+  APPLY_THEME=true
+  APPLY_ZSH_CONFIG=false
+  APPLY_GNOME_EXTENSIONS=false
+  local current=true set_calls=0
+
+  theme_schema_has_key() {
+    return 0
+  }
+  theme_gsettings() {
+    local uuid="$1"
+    shift
+    case "$1" in
+      writable) printf 'true\n' ;;
+      get) printf '%s\n' "$current" ;;
+      set)
+        current="$4"
+        ((set_calls += 1))
+        ;;
+    esac
+  }
+  run_cmd() {
+    local description="$1"
+    shift
+    "$@"
+  }
+
+  validate_theme_setting_with_retry org.gnome.desktop.interface enable-hot-corners false "" >/dev/null ||
+    fail "la validation doit retenter un réglage GNOME divergent"
+  [[ "$current" == "false" && "$set_calls" == "1" ]] ||
+    fail "la seconde tentative doit appliquer la valeur cible"
+
+  current=true
+  theme_gsettings() {
+    local uuid="$1"
+    shift
+    case "$1" in
+      writable) printf 'true\n' ;;
+      get) printf '%s\n' "$current" ;;
+      set) ((set_calls += 1)) ;;
+    esac
+  }
+  validate_theme_result >/dev/null || fail "un réglage GNOME rétabli par la session ne doit pas bloquer le script"
+  [[ "$(state_get theme_validation_failures)" == *"enable-hot-corners"* ]] ||
+    fail "le réglage non persistant doit rester signalé dans l'état"
+
+  THEME_GSETTINGS_PROFILE="$original_profile"
+  ok "la validation GNOME retente les valeurs sans bloquer sur une préférence non persistante"
+}
+
+test_extension_activation_queue_is_recognized() {
+  gnome-extensions() {
+    return 1
+  }
+  gsettings() {
+    printf "%s\n" "['tiling-assistant@leleat-on-github']"
+  }
+
+  theme_extension_is_enabled_or_queued tiling-assistant@leleat-on-github ||
+    fail "une extension programmée pour la prochaine connexion doit être reconnue"
+  ok "l'activation différée de Tiling Assistant est reconnue"
+}
+
 test_current_config
 test_invalid_configs
 test_entrypoints
@@ -367,5 +436,7 @@ test_theme_zsh_block_preserves_user_content
 test_theme_value_comparison
 test_extension_validation_does_not_require_shell_cache
 test_legacy_dark_mode_fallback
+test_theme_validation_retries_without_blocking
+test_extension_activation_queue_is_recognized
 
 printf '1..%d\n' "$passed"

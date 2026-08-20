@@ -322,6 +322,19 @@ theme_enable_extension() {
   log_warn "$name sera chargée après déconnexion/reconnexion de GNOME."
 }
 
+theme_extension_is_enabled_or_queued() {
+  local uuid="$1"
+
+  gnome-extensions list --enabled 2>/dev/null | grep -Fxq "$uuid" && return 0
+
+  # Une extension fraîchement installée n'est pas toujours visible par le
+  # processus GNOME Shell courant. Son UUID peut néanmoins être enregistré
+  # pour qu'elle soit chargée à la prochaine connexion.
+  local enabled
+  enabled="$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)" || return 1
+  grep -Fq "'$uuid'" <<<"$enabled"
+}
+
 install_one_theme_extension() {
   local uuid="$1" name="$2" package="$3" version="$4" version_tag="$5" checksum="$6" enable="$7"
 
@@ -370,8 +383,8 @@ install_one_theme_extension() {
   if [[ "$enable" == "true" ]]; then
     if is_true "$DRY_RUN"; then
       log_info "[dry-run] L'extension $name serait activée."
-    elif gnome-extensions list --enabled | grep -Fxq "$uuid"; then
-      log_ok "Extension déjà activée : $name"
+    elif theme_extension_is_enabled_or_queued "$uuid"; then
+      log_ok "Extension activée ou programmée pour la prochaine connexion : $name"
     else
       theme_enable_extension "$uuid" "$name" || return 1
       state_set logout_required true || return 1
@@ -432,8 +445,8 @@ apply_theme_gsettings() {
     fi
 
     if [[ "$schema.$key" == "org.gnome.mutter.edge-tiling" ]] &&
-      ! gnome-extensions info tiling-assistant@leleat-on-github >/dev/null 2>&1; then
-      log_info "Tiling Assistant absent : edge-tiling Fedora est conservé."
+      ! theme_extension_is_enabled_or_queued tiling-assistant@leleat-on-github; then
+      log_info "Tiling Assistant n'est pas activé : edge-tiling Fedora est conservé."
       continue
     fi
 
@@ -542,6 +555,27 @@ configure_theme_zsh() {
   log_ok "Profil Zsh appliqué sans modifier les personnalisations hors du bloc géré."
 }
 
+validate_theme_setting_with_retry() {
+  local schema="$1" key="$2" target="$3" uuid="$4"
+  local actual
+
+  actual="$(theme_gsettings "$uuid" get "$schema" "$key")" || return 1
+  theme_values_equal "$target" "$actual" && return 0
+
+  log_warn "Validation différente pour $schema.$key : $actual (cible : $target). Nouvelle tentative."
+  theme_gsettings "$uuid" writable "$schema" "$key" | grep -Fxq true || return 1
+  run_cmd "Nouvelle application de $schema.$key" theme_gsettings "$uuid" set "$schema" "$key" "$target" || return 1
+
+  actual="$(theme_gsettings "$uuid" get "$schema" "$key")" || return 1
+  if theme_values_equal "$target" "$actual"; then
+    log_ok "Réglage confirmé après une nouvelle tentative : $schema.$key"
+    return 0
+  fi
+
+  log_warn "Réglage toujours différent pour $schema.$key : $actual"
+  return 1
+}
+
 validate_theme_result() {
   if is_true "$DRY_RUN"; then
     log_info "[dry-run] La relecture finale du profil sera effectuée après son application réelle."
@@ -549,22 +583,36 @@ validate_theme_result() {
   fi
 
   if [[ "$APPLY_THEME" == "true" ]]; then
-    local raw schema key target uuid extra actual
+    local raw schema key target uuid extra
+    local -a validation_failures=()
     while IFS= read -r raw || [[ -n "$raw" ]]; do
       raw="${raw%$'\r'}"
       [[ -z "$raw" || "$raw" == \#* ]] && continue
       IFS='|' read -r schema key target uuid extra <<<"$raw"
+      if [[ "$schema.$key" == "org.gnome.mutter.edge-tiling" ]] &&
+        ! theme_extension_is_enabled_or_queued tiling-assistant@leleat-on-github; then
+        continue
+      fi
       theme_schema_has_key "$schema" "$key" "$uuid" || continue
       if [[ "$schema.$key" == "org.gnome.desktop.interface.gtk-theme" &&
         "$(state_get theme_legacy_dark false)" == "true" ]]; then
         target="'Adwaita-dark'"
       fi
-      actual="$(theme_gsettings "$uuid" get "$schema" "$key")"
-      theme_values_equal "$target" "$actual" || {
-        die "Validation theme échouée : $schema.$key vaut $actual."
-        return 1
-      }
+      if ! validate_theme_setting_with_retry "$schema" "$key" "$target" "$uuid"; then
+        validation_failures+=("$schema.$key")
+      fi
     done <"$THEME_GSETTINGS_PROFILE"
+
+    local validation_summary="" failure
+    for failure in "${validation_failures[@]}"; do
+      [[ -z "$validation_summary" ]] || validation_summary+=", "
+      validation_summary+="$failure"
+    done
+    state_set theme_validation_failures "$validation_summary"
+    if [[ -n "$validation_summary" ]]; then
+      log_warn "Certains réglages GNOME sont ignorés ou rétablis par la session : $validation_summary"
+      log_warn "Ils ne bloquent plus la fin du script ; vérifiez-les après déconnexion/reconnexion."
+    fi
     fc-match Inter >/dev/null || {
       die "Police Inter introuvable après application du thème."
       return 1
@@ -586,6 +634,30 @@ validate_theme_result() {
     local failures
     failures="$(state_get theme_extension_failures)"
     [[ -z "$failures" ]] || log_warn "Profil terminé avec extensions à revoir : $failures"
+
+    local -a extension_validation_failures=()
+    local version version_tag checksum enable name package
+    while IFS='|' read -r uuid name package version version_tag checksum enable; do
+      [[ -z "$uuid" || "$uuid" == \#* || "$enable" != "true" ]] && continue
+      if ! theme_installed_extension_is_compatible "$uuid" "$version"; then
+        extension_validation_failures+=("$name (installation incompatible)")
+      elif ! theme_extension_is_enabled_or_queued "$uuid"; then
+        if theme_enable_extension "$uuid" "$name"; then
+          state_set logout_required true
+        else
+          extension_validation_failures+=("$name (activation)")
+        fi
+      fi
+    done <"$THEME_EXTENSIONS_PROFILE"
+
+    local extension_validation_summary=""
+    for failure in "${extension_validation_failures[@]}"; do
+      [[ -z "$extension_validation_summary" ]] || extension_validation_summary+=", "
+      extension_validation_summary+="$failure"
+    done
+    state_set theme_extension_validation_failures "$extension_validation_summary"
+    [[ -z "$extension_validation_summary" ]] ||
+      log_warn "Extensions non validées : $extension_validation_summary"
     state_set logout_required true
   fi
   local setting_failures
