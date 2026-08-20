@@ -172,6 +172,7 @@ print_execution_plan() {
   log_info "Mode dry-run : $DRY_RUN"
   log_info "Reprise : $RESUME"
   log_info "Confirmation automatique des actions sûres : $AUTO_CONFIRM_SAFE_ACTIONS"
+  log_info "Mode entièrement automatique : $AUTO_CONFIRM_ALL_ACTIONS"
   log_info "Redémarrage automatique : $AUTO_REBOOT"
 
   log_info "Applications personnelles :"

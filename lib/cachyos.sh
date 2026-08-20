@@ -96,7 +96,7 @@ enable_cachyos_copr() {
   if dnf repolist --all 2>/dev/null | grep -q 'copr:copr.fedorainfracloud.org:bieszczaders:kernel-cachyos'; then
     log_ok "COPR CachyOS déjà configuré."
   else
-    run_cmd "Activation du COPR CachyOS GCC" sudo dnf copr enable "$CACHYOS_COPR"
+    run_sensitive_dnf "Activation du COPR CachyOS GCC" copr enable "$CACHYOS_COPR"
   fi
 }
 
@@ -175,7 +175,10 @@ validate_cachyos_boot() {
 
   if [[ "$HAS_NVIDIA_GPU" == "true" ]]; then
     run_cmd "Validation NVIDIA sur CachyOS" nvidia-smi
-    lsmod | grep -q '^nvidia' || die "Le module NVIDIA n'est pas chargé."
+    # Lire directement /proc/modules. Avec pipefail, `lsmod | grep -q` peut
+    # produire un faux échec lorsque grep ferme le pipeline après le match.
+    grep -q '^nvidia ' /proc/modules || die "Le module NVIDIA n'est pas chargé."
+    log_ok "Module noyau NVIDIA chargé sous CachyOS."
   fi
   command -v vulkaninfo >/dev/null 2>&1 &&
     vulkaninfo --summary 2>&1 | tee -a "$LOG_FILE" || true
@@ -205,7 +208,7 @@ capture_addons_state() {
 install_cachyos_addons() {
   capture_addons_state
   ensure_dnf_packages dnf-plugins-core
-  run_cmd "Activation du COPR des addons CachyOS" sudo dnf copr enable "$CACHYOS_ADDONS_COPR"
+  run_sensitive_dnf "Activation du COPR des addons CachyOS" copr enable "$CACHYOS_ADDONS_COPR"
 
   local -a addon_packages=(cachyos-settings scx-scheds scx-tools scx-manager ananicy-cpp)
   local -a added_packages=()
@@ -223,7 +226,7 @@ install_cachyos_addons() {
   if package_installed zram-generator-defaults; then
     confirm_action sensitive "Remplacer la configuration ZRAM Fedora par cachyos-settings ?" ||
       die "Le remplacement ZRAM a été refusé."
-    run_cmd "Remplacement de la configuration ZRAM" sudo dnf swap zram-generator-defaults cachyos-settings
+    run_sensitive_dnf "Remplacement de la configuration ZRAM" swap zram-generator-defaults cachyos-settings
     state_set cachyos_zram_swapped true
   else
     ensure_dnf_packages cachyos-settings

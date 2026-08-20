@@ -6,6 +6,7 @@
 declare -Ag CONFIG_DEFAULTS=(
   [CONFIG_VERSION]="1"
   [AUTO_CONFIRM_SAFE_ACTIONS]="false"
+  [AUTO_CONFIRM_ALL_ACTIONS]="false"
   [AUTO_REBOOT]="false"
   [INSTALL_BRAVE]="false"
   [INSTALL_BITWARDEN]="false"
@@ -43,6 +44,7 @@ declare -Ag CONFIG_TYPES=(
 declare -ag CONFIG_KEYS=(
   CONFIG_VERSION
   AUTO_CONFIRM_SAFE_ACTIONS
+  AUTO_CONFIRM_ALL_ACTIONS
   AUTO_REBOOT
   INSTALL_BRAVE
   INSTALL_BITWARDEN
@@ -193,6 +195,11 @@ apply_config_override() {
 }
 
 resolve_config_dependencies() {
+  if [[ "$AUTO_CONFIRM_ALL_ACTIONS" == "true" && "$AUTO_CONFIRM_SAFE_ACTIONS" != "true" ]]; then
+    AUTO_CONFIRM_SAFE_ACTIONS=true
+    log_info "Dépendance activée : le mode entièrement automatique inclut les actions sûres."
+  fi
+
   if [[ "$INSTALL_CLAMUI" == "true" && "$INSTALL_CLAMAV" != "true" ]]; then
     INSTALL_CLAMAV=true
     log_info "Dépendance activée : INSTALL_CLAMAV=true est requis par ClamUI."

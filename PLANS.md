@@ -104,6 +104,8 @@ Les options CLI auront priorité sur le fichier : valeurs internes par défaut, 
 
 `AUTO_CONFIRM_SAFE_ACTIONS=true` autorise les installations ordinaires sélectionnées dans la configuration et transmet `--assumeyes` aux transactions DNF/Flatpak correspondantes. Cela ne contourne jamais les contrôles matériels, la vérification des dépôts, les transactions destructrices ou les étapes de récupération.
 
+`AUTO_CONFIRM_ALL_ACTIONS=true` étend cette automatisation aux confirmations sensibles ainsi qu'aux transactions DNF correspondantes, notamment l'activation des COPR, les swaps et les suppressions nécessaires. Ce mode ne contourne jamais l'authentification `sudo`, Secure Boot, les erreurs matérielles ou les deux démarrages manuels de validation CachyOS. `AUTO_REBOOT` reste la seule option autorisant un redémarrage automatique hors du parcours CachyOS.
+
 `AUTO_REBOOT=true` autorise un redémarrage automatique après sauvegarde de l'état. Il est volontairement ignoré lors du premier démarrage CachyOS, qui exige une sélection manuelle dans GRUB.
 
 Les dépendances implicites sont limitées et documentées :
@@ -273,7 +275,7 @@ sudo setsebool -P domain_kernel_load_modules on
 
 Il enregistre le fait qu'il a effectué cette modification afin de pouvoir la restaurer lors de la désinstallation.
 
-Le noyau Fedora mémorisé avant l'installation est ensuite redéfini comme choix par défaut. `AUTO_REBOOT` est ignoré à ce stade : l'utilisateur doit redémarrer manuellement et sélectionner le noyau CachyOS dans GRUB.
+Le noyau Fedora mémorisé avant l'installation est ensuite redéfini comme choix par défaut. Le script programme `menu_show_once=1` avec `grub2-editenv` afin d'afficher GRUB au prochain démarrage uniquement. `AUTO_REBOOT` est ignoré à ce stade : l'utilisateur doit redémarrer manuellement et sélectionner le noyau CachyOS dans GRUB.
 
 ### Validation après redémarrage
 
@@ -475,7 +477,7 @@ modinfo -k "$target_kernel_version" -F version nvidia
 modinfo -k "$target_kernel_version" -F signer nvidia
 ```
 
-Après redémarrage, vérifier au minimum `lsmod`, `nvidia-smi`, `vainfo` et `vulkaninfo --summary`. Un simple succès de `modinfo` ne prouve pas que le module est chargé.
+Après redémarrage, vérifier au minimum `/proc/modules`, `nvidia-smi`, `vainfo` et `vulkaninfo --summary`. Un simple succès de `modinfo` ne prouve pas que le module est chargé. La lecture directe de `/proc/modules` évite le faux négatif que peut provoquer `lsmod | grep -q` avec `pipefail`.
 
 ### AppImage
 

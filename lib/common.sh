@@ -12,6 +12,7 @@ readonly MANAGED_MARKER="FEDORA_POST_INSTALL_MANAGED"
 
 DRY_RUN="${DRY_RUN:-false}"
 AUTO_CONFIRM_SAFE_ACTIONS="${AUTO_CONFIRM_SAFE_ACTIONS:-false}"
+AUTO_CONFIRM_ALL_ACTIONS="${AUTO_CONFIRM_ALL_ACTIONS:-false}"
 STATE_ROOT="${STATE_ROOT:-}"
 STATE_STEPS_DIR="${STATE_STEPS_DIR:-}"
 STATE_VALUES_DIR="${STATE_VALUES_DIR:-}"
@@ -169,6 +170,11 @@ confirm_action() {
 
   if is_true "$DRY_RUN"; then
     log_info "[dry-run] Confirmation qui serait demandée ($sensitivity) : $prompt"
+    return 0
+  fi
+
+  if is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
+    log_warn "Confirmation automatique complète ($sensitivity) : $prompt"
     return 0
   fi
 
@@ -381,7 +387,21 @@ run_safe_dnf() {
   # La confirmation fonctionnelle a déjà été gérée par confirm_action safe.
   # Lorsque l'utilisateur a demandé l'automatisation, éviter que DNF repose
   # ensuite la même question pour chaque transaction ordinaire.
-  if is_true "$AUTO_CONFIRM_SAFE_ACTIONS"; then
+  if is_true "$AUTO_CONFIRM_SAFE_ACTIONS" || is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
+    command+=(--assumeyes)
+  fi
+  command+=("$@")
+  run_cmd "$description" "${command[@]}"
+}
+
+run_sensitive_dnf() {
+  local description="$1"
+  shift
+  local -a command=(sudo dnf)
+
+  # Le mode complet est un choix explicite de l'utilisateur. Sans lui, DNF
+  # conserve sa propre confirmation pour les dépôts, swaps et suppressions.
+  if is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
     command+=(--assumeyes)
   fi
   command+=("$@")
@@ -448,7 +468,7 @@ ensure_flatpak_app() {
     return 0
   }
   local -a flatpak_command=(flatpak install)
-  if is_true "$AUTO_CONFIRM_SAFE_ACTIONS"; then
+  if is_true "$AUTO_CONFIRM_SAFE_ACTIONS" || is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
     flatpak_command+=(--assumeyes)
   fi
   flatpak_command+=(--system flathub "$application_id")
@@ -505,10 +525,23 @@ request_manual_reboot() {
   local reason="$2"
 
   state_set resume_required "$checkpoint"
+
+  # Fedora Workstation masque normalement GRUB après un démarrage réussi.
+  # Demander son affichage pour le prochain démarrage uniquement, sans changer
+  # durablement l'expérience de démarrage de l'utilisateur.
+  if command -v grub2-editenv >/dev/null 2>&1; then
+    if ! run_cmd "Affichage de GRUB au prochain démarrage" sudo grub2-editenv - set menu_show_once=1; then
+      log_warn "Impossible de programmer l'affichage unique de GRUB."
+    fi
+  else
+    log_warn "grub2-editenv est absent : GRUB ne peut pas être affiché automatiquement."
+  fi
+
   log_step "ACTION UTILISATEUR REQUISE — REDÉMARRAGE MANUEL"
   log_warn "$reason"
   log_warn "1. Redémarrez manuellement la machine."
-  log_warn "2. Effectuez la sélection demandée dans GRUB."
+  log_warn "2. Dans GRUB, sélectionnez le noyau CachyOS."
+  log_warn "   Si le menu reste masqué, maintenez Maj gauche ou tapotez F8 pendant le démarrage."
   log_warn "3. Une fois connecté, relancez : ./fedora-setup.sh --resume"
 
   if is_true "$DRY_RUN"; then
@@ -535,6 +568,11 @@ request_configured_reboot() {
     log_warn "AUTO_REBOOT=true : redémarrage dans 10 secondes. Ctrl-C pour annuler."
     sleep 10
     run_cmd "Redémarrage du système" sudo systemctl reboot
+    exit 0
+  fi
+
+  if is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
+    log_warn "AUTO_REBOOT=false : le redémarrage reste différé malgré le mode entièrement automatique."
     exit 0
   fi
 

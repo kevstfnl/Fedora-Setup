@@ -277,7 +277,7 @@ install_multimedia_codecs() {
   if package_installed ffmpeg-free; then
     confirm_action sensitive "Remplacer ffmpeg-free par ffmpeg RPM Fusion avec --allowerasing ?" ||
       die "Le remplacement de ffmpeg-free a été refusé."
-    run_cmd "Remplacement de ffmpeg-free" sudo dnf swap ffmpeg-free ffmpeg --allowerasing
+    run_sensitive_dnf "Remplacement de ffmpeg-free" swap ffmpeg-free ffmpeg --allowerasing
   else
     ensure_dnf_packages ffmpeg
   fi
@@ -300,7 +300,7 @@ install_amd_video_stack() {
   if package_installed mesa-va-drivers; then
     confirm_action sensitive "Remplacer mesa-va-drivers par mesa-va-drivers-freeworld pour AMD ?" ||
       die "Le remplacement du pilote VA-API AMD a été refusé."
-    run_cmd "Activation des codecs VA-API AMD" sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld
+    run_sensitive_dnf "Activation des codecs VA-API AMD" swap mesa-va-drivers mesa-va-drivers-freeworld
   else
     ensure_dnf_packages mesa-va-drivers-freeworld
   fi
@@ -521,7 +521,11 @@ install_zsh_environment() {
   current_shell="$(getent passwd "$(id -un)" | awk -F: '{print $7}')"
   if [[ "$current_shell" != "$zsh_path" ]] &&
     confirm_action safe "Définir Zsh comme shell par défaut ?"; then
-    run_cmd "Modification du shell par défaut" chsh -s "$zsh_path"
+    if is_true "$AUTO_CONFIRM_ALL_ACTIONS"; then
+      run_cmd "Modification non interactive du shell par défaut" sudo usermod --shell "$zsh_path" "$(id -un)"
+    else
+      run_cmd "Modification du shell par défaut" chsh -s "$zsh_path"
+    fi
   fi
 }
 
@@ -680,7 +684,7 @@ install_docker_engine() {
   if (("${#installed_conflicts[@]}" > 0)); then
     confirm_action sensitive "Supprimer les paquets en conflit avec Docker Engine : ${installed_conflicts[*]} ?" ||
       die "Les conflits Docker doivent être résolus avant l'installation."
-    run_cmd "Suppression des conflits Docker" sudo dnf remove "${installed_conflicts[@]}"
+    run_sensitive_dnf "Suppression des conflits Docker" remove "${installed_conflicts[@]}"
   fi
 
   if [[ ! -f /etc/yum.repos.d/docker-ce.repo ]]; then
