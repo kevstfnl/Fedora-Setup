@@ -25,6 +25,8 @@ source "$PROJECT_DIR/lib/common.sh"
 source "$PROJECT_DIR/lib/config.sh"
 # shellcheck source=../lib/tasks.sh
 source "$PROJECT_DIR/lib/tasks.sh"
+# shellcheck source=../lib/theme.sh
+source "$PROJECT_DIR/lib/theme.sh"
 
 passed=0
 
@@ -57,6 +59,9 @@ test_current_config() {
   [[ "$NVIDIA_DRIVER" == "auto" ]] || fail "NVIDIA_DRIVER"
   [[ "$SUPPRESSION_MEDIA_WRITER" == "true" ]] || fail "SUPPRESSION_MEDIA_WRITER"
   [[ "$HIDE_GRUB_AFTER_CACHYOS" == "true" ]] || fail "HIDE_GRUB_AFTER_CACHYOS"
+  [[ "$APPLY_THEME" == "true" ]] || fail "APPLY_THEME"
+  [[ "$APPLY_GNOME_EXTENSIONS" == "true" ]] || fail "APPLY_GNOME_EXTENSIONS"
+  [[ "$APPLY_ZSH_CONFIG" == "true" ]] || fail "APPLY_ZSH_CONFIG"
   ok "config.ini est accepté et ses valeurs importantes sont chargées"
 }
 
@@ -82,6 +87,7 @@ test_entrypoints() {
   "$PROJECT_DIR/fedora-setup.sh" --help >/dev/null
   "$PROJECT_DIR/fedora-setup.sh" --validate-config --config "$PROJECT_DIR/config.ini" >/dev/null
   "$PROJECT_DIR/scripts/uninstall-cachyos.sh" --help >/dev/null
+  "$PROJECT_DIR/scripts/restore-theme.sh" --help >/dev/null
   ok "les points d'entrée et la validation autonome répondent"
 }
 
@@ -94,7 +100,7 @@ test_shell_syntax() {
 }
 
 test_static_guards() {
-  local -a source_paths=("$PROJECT_DIR/fedora-setup.sh" "$PROJECT_DIR/lib" "$PROJECT_DIR/scripts")
+  local -a source_paths=("$PROJECT_DIR/fedora-setup.sh" "$PROJECT_DIR/lib" "$PROJECT_DIR/scripts" "$PROJECT_DIR/theme")
   if grep -R -E 'source[[:space:]]+.*config\.ini|eval[[:space:]]' "${source_paths[@]}" >/dev/null; then
     fail "config.ini ne doit jamais être exécuté"
   fi
@@ -227,6 +233,68 @@ test_preinstalled_cleanup_is_conditional() {
   ok "le nettoyage Fedora respecte la configuration et les remplacements"
 }
 
+test_theme_profiles_are_strict() {
+  validate_theme_profiles >/dev/null
+
+  local original_gsettings="$THEME_GSETTINGS_PROFILE"
+  THEME_GSETTINGS_PROFILE="$TEST_TMP/unsafe-gsettings.conf"
+  printf "org.gnome.shell.extensions.gsconnect.devices|certificate|'secret'|gsconnect@andyholmes.github.io\n" >"$THEME_GSETTINGS_PROFILE"
+  assert_fails "les données GSConnect sensibles sont refusées" validate_theme_profiles
+
+  printf "org.gnome.desktop.interface|font-name|'Inter 12'|\norg.gnome.desktop.interface|font-name|'Inter 11'|\n" >"$THEME_GSETTINGS_PROFILE"
+  assert_fails "les réglages GNOME dupliqués sont refusés" validate_theme_profiles
+  THEME_GSETTINGS_PROFILE="$original_gsettings"
+
+  local original_extensions="$THEME_EXTENSIONS_PROFILE"
+  THEME_EXTENSIONS_PROFILE="$TEST_TMP/unsafe-extensions.conf"
+  printf 'bad uuid|Test|-|1|1|not-a-checksum|true\n' >"$THEME_EXTENSIONS_PROFILE"
+  assert_fails "les UUID et checksums d'extension invalides sont refusés" validate_theme_profiles
+  THEME_EXTENSIONS_PROFILE="$original_extensions"
+
+  validate_theme_profiles >/dev/null || fail "les manifestes officiels doivent rester valides"
+  ok "les profils theme officiels sont stricts et exempts de données privées"
+}
+
+test_theme_zsh_block_preserves_user_content() {
+  local original_home="$HOME"
+  local original_xdg_config_home="${XDG_CONFIG_HOME:-}"
+  HOME="$TEST_TMP/home"
+  XDG_CONFIG_HOME="$HOME/.config"
+  RUNTIME_TMP="$TEST_TMP"
+  LOG_FILE="$TEST_TMP/theme-zsh.log"
+  DRY_RUN=false
+  mkdir -p "$HOME/.oh-my-zsh"
+  printf '%s\n' \
+    'alias personnel="printf conserve"' \
+    'source "$ZSH/oh-my-zsh.sh"' \
+    '# >>> fedora-post-install zsh >>>' \
+    'ancien contenu' \
+    '# <<< fedora-post-install zsh <<<' >"$HOME/.zshrc"
+
+  configure_theme_zsh >/dev/null
+  configure_theme_zsh >/dev/null
+  grep -Fq 'alias personnel="printf conserve"' "$HOME/.zshrc" || fail "le contenu Zsh personnel doit être conservé"
+  [[ "$(grep -Fc '# >>> fedora-post-install theme zsh >>>' "$HOME/.zshrc")" == "1" ]] ||
+    fail "un seul bloc Zsh géré doit être présent"
+  ! grep -Fq 'ancien contenu' "$HOME/.zshrc" || fail "l'ancien bloc géré doit être remplacé"
+  grep -Fq "$MANAGED_MARKER" "$(theme_managed_zsh_target)" || fail "le module Zsh installé doit être signé"
+  zsh -n "$HOME/.zshrc" "$(theme_managed_zsh_target)" || fail "la configuration Zsh produite doit être valide"
+
+  HOME="$original_home"
+  if [[ -n "$original_xdg_config_home" ]]; then
+    XDG_CONFIG_HOME="$original_xdg_config_home"
+  else
+    unset XDG_CONFIG_HOME
+  fi
+  ok "le bloc Zsh géré est idempotent et préserve le contenu utilisateur"
+}
+
+test_theme_value_comparison() {
+  theme_values_equal "0.9" "0.90000000000000002" || fail "les flottants GVariant équivalents doivent être acceptés"
+  assert_fails "deux valeurs GVariant différentes sont refusées" theme_values_equal "true" "false"
+  ok "la relecture GSettings tolère uniquement la normalisation numérique"
+}
+
 test_current_config
 test_invalid_configs
 test_entrypoints
@@ -237,5 +305,8 @@ test_full_automatic_dnf_mode
 test_stateful_command_keeps_environment
 test_final_reboot_checkpoint_is_cleared
 test_preinstalled_cleanup_is_conditional
+test_theme_profiles_are_strict
+test_theme_zsh_block_preserves_user_content
+test_theme_value_comparison
 
 printf '1..%d\n' "$passed"

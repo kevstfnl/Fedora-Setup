@@ -47,8 +47,13 @@ lib/common.sh                   logs, état, confirmations et garde-fous
 lib/config.sh                   parseur INI strict
 lib/tasks.sh                    étapes Fedora, applications et validations
 lib/cachyos.sh                  installation et validation CachyOS
+lib/theme.sh                    profil GNOME/Zsh, sauvegarde et validation
+theme/gsettings.conf            liste blanche des préférences GNOME
+theme/extensions.conf           manifeste GNOME 50 vérifié
+theme/zsh/managed.zsh           configuration Zsh gérée
 scripts/select-cachy-kernel.sh  helper géré pour le noyau par défaut
 scripts/uninstall-cachyos.sh    retour autonome et prudent vers Fedora
+scripts/restore-theme.sh        restauration autonome du profil utilisateur
 tests/run.sh                    tests statiques et du parseur
 ```
 
@@ -716,6 +721,160 @@ sudo dnf install eza zoxide jq htop tree git-delta tokei
 
 Les paquets doivent être interrogés puis installés individuellement ou par groupes prévalidés, sans masquer un paquet indisponible avec `--skip-unavailable`.
 
+## Fonctionnalité implémentée — Profil GNOME et Zsh
+
+> [!IMPORTANT]
+> Cette fonctionnalité est implémentée par l'étape `theme`. Elle reste entièrement facultative et chaque partie peut être désactivée séparément dans `config.ini`.
+
+### Objectif et limites
+
+Une nouvelle étape `theme` devra reproduire l'apparence et les comportements génériques de la machine de référence sans copier ses données personnelles ni ses réglages matériels. Elle sera rejouable, facultative, sauvegardée avant modification et indépendante de l'installation des applications.
+
+Le terme « thème » couvrira :
+
+- les polices, icônes, couleurs et préférences ergonomiques GNOME ;
+- l'installation, l'activation et la configuration d'une liste contrôlée d'extensions GNOME ;
+- une configuration Zsh équivalente à celle de la machine de référence ;
+- la restauration exacte des valeurs remplacées.
+
+Le script ne devra jamais importer directement un export complet de `/org/gnome/`. Les réglages seront décrits individuellement et appliqués avec `gsettings` à partir d'une liste blanche versionnée.
+
+### Organisation
+
+```text
+theme/gsettings.conf             liste blanche des schémas, clés et valeurs GNOME
+theme/extensions.conf            manifeste des extensions et réglages autorisés
+theme/zsh/managed.zsh            bloc Zsh géré par Fedora Setup
+lib/theme.sh                     sauvegarde, application et validation du profil
+scripts/restore-theme.sh         restauration autonome du dernier état sauvegardé
+tests/run.sh                     tests du manifeste, du profil et du rollback
+```
+
+L'étape `theme` est placée après les installations GNOME, les polices et le parcours CachyOS, mais avant la validation finale. Elle utilise des sous-points de reprise distincts : `theme.backup`, `theme.extensions`, `theme.gnome`, `theme.zsh` et `theme.validate`.
+
+### Configuration
+
+```ini
+# Applique les préférences GNOME génériques et le thème visuel décrit ci-dessous.
+APPLY_THEME=true
+
+# Installe, configure et active les extensions GNOME sélectionnées.
+APPLY_GNOME_EXTENSIONS=true
+
+# Ajoute à ~/.zshrc un bloc géré sans remplacer les personnalisations existantes.
+APPLY_ZSH_CONFIG=true
+```
+
+Ces options sont indépendantes. `APPLY_GNOME_EXTENSIONS=true` exige une session GNOME compatible ; `APPLY_ZSH_CONFIG=true` exige que l'étape `desktop` ait installé Zsh et Oh My Zsh, ou qu'ils soient déjà valides. Comme les autres clés, elles acceptent uniquement `true` ou `false` et sont prises en charge par `--validate-config`, `--dry-run`, `--set` et `--resume`.
+
+### Profil GNOME de référence
+
+Le premier profil versionné visera GNOME 50 et appliquera uniquement les valeurs suivantes après validation de l'existence du schéma, de la clé, de son type GVariant et de son caractère modifiable :
+
+| Schéma | Clé | Valeur cible |
+|---|---|---|
+| `org.gnome.desktop.interface` | `font-name` | `Inter 12` |
+| `org.gnome.desktop.interface` | `document-font-name` | `Inter 12` |
+| `org.gnome.desktop.interface` | `monospace-font-name` | `Fira Code weight=450 11` |
+| `org.gnome.desktop.interface` | `color-scheme` | `prefer-dark` |
+| `org.gnome.desktop.interface` | `gtk-theme` | `Adwaita` |
+| `org.gnome.desktop.interface` | `icon-theme` | `Papirus-Dark` |
+| `org.gnome.desktop.interface` | `cursor-theme` | `Adwaita` |
+| `org.gnome.desktop.interface` | `gtk-enable-primary-paste` | `false` |
+| `org.gnome.desktop.interface` | `enable-hot-corners` | `false` |
+| `org.gnome.desktop.interface` | `show-battery-percentage` | `true` |
+| `org.gnome.desktop.interface` | `font-hinting` | `medium` |
+| `org.gnome.desktop.wm.preferences` | `button-layout` | `appmenu:minimize,maximize,close` |
+
+La désactivation du collage par clic milieu sera donc explicite via `gtk-enable-primary-paste=false`. Les polices et `Papirus-Dark` ne seront appliqués qu'après validation avec `fc-match` et présence du thème d'icônes. Une dépendance absente provoquera un diagnostic lisible, pas une valeur partiellement appliquée.
+
+`org.gnome.mutter edge-tiling=false` ne sera appliqué que si Tiling Assistant est installé et activé, afin d'éviter deux systèmes de mosaïque concurrents.
+
+### Réglages volontairement exclus
+
+Le profil ne copiera pas :
+
+- la vitesse et les boutons de la souris, le pavé tactile ou tout réglage de périphérique ;
+- les écrans, connecteurs tels que `eDP-1`, résolutions, échelles ou dispositions multi-écrans ;
+- les profils d'alimentation et paramètres propres au matériel ;
+- les emplacements météo et autres données de localisation ;
+- les appareils, adresses, certificats, clés ou associations GSConnect ;
+- l'ordre de la grille d'applications et les états transitoires de GNOME Shell ;
+- les favoris du dock dont le fichier `.desktop` n'existe pas sur la machine cible.
+
+Les favoris éventuellement ajoutés plus tard devront être déclarés séparément et chacun sera appliqué uniquement si son fichier `.desktop` est présent. Aucune donnée sous un chemin dynamique ou propre à un appareil ne sera acceptée dans le manifeste.
+
+### Extensions GNOME
+
+Le manifeste contiendra l'UUID attendu, la source, la version retenue, les versions GNOME compatibles et, pour une archive téléchargée, son SHA-256. L'ordre de préférence sera : paquet Fedora prévalidé, puis archive officielle depuis extensions.gnome.org lorsqu'aucun paquet adapté n'existe.
+
+| Extension | Source prévue | Comportement |
+|---|---|---|
+| AppIndicator | paquet Fedora | installer et activer |
+| User Themes | paquet Fedora | installer ; activer seulement si un thème Shell est configuré |
+| Dash to Dock | paquet Fedora | installer, configurer et activer |
+| Blur My Shell | paquet Fedora | installer, configurer et activer |
+| GSConnect | paquet Fedora | installer et activer sans importer d'association |
+| Coverflow Alt-Tab | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
+| Add to Desktop | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
+| Tiling Assistant | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
+| Desktop Icons NG | paquet Fedora si disponible, sinon extensions.gnome.org | prévalider la source puis installer et configurer |
+| Fedora Background Logo | composant Fedora existant | conserver sans imposer son activation |
+
+Les versions actuellement repérées comme compatibles GNOME 50 sont Blur My Shell 72, Tiling Assistant 54, Coverflow Alt-Tab 87 et Add to Desktop 16. Elles devront être revérifiées au moment de l'implémentation, puis figées dans le manifeste plutôt que résolues à chaque exécution.
+
+Les réglages versionnés couvriront au minimum :
+
+- Dash to Dock en bas, taille maximale des icônes de 48, hauteur maximale de `0.9`, multi-écran, transparence fixe et démarrage hors vue d'ensemble ;
+- l'apparence du panneau, de la vue d'ensemble et du dock pour Blur My Shell ;
+- les préférences génériques de Desktop Icons NG et Tiling Assistant, sans identifiant d'écran ni coordonnée propre à la machine de référence.
+
+Avant activation, le script vérifiera l'UUID extrait, `shell-version`, l'intégrité de l'archive et l'installation effective avec `gnome-extensions info`. Il appliquera ensuite uniquement les clés listées dans le manifeste et vérifiera leur relecture. Une déconnexion/reconnexion GNOME pourra être nécessaire pour charger du nouveau code d'extension ; elle sera annoncée dans le résumé final sans tuer la session active.
+
+### Configuration Zsh
+
+Oh My Zsh sera installé ou réutilisé avec une révision épinglée. Le script ne remplacera jamais l'intégralité de `~/.zshrc` : il ajoutera ou mettra à jour un unique bloc délimité et sauvegardera le fichier original.
+
+Le profil cible utilisera le thème `clean` et les intégrations suivantes lorsqu'elles sont applicables :
+
+```text
+git dnf sudo systemd docker docker-compose npm node bun
+zsh-autosuggestions zsh-syntax-highlighting
+```
+
+Les plugins dépendant d'une commande ne seront activés que si cette commande existe. `zsh-autosuggestions` et `zsh-syntax-highlighting` utiliseront les paquets Fedora déjà prévus, sans clone concurrent dans `~/.oh-my-zsh/custom`; la coloration syntaxique sera chargée en dernier. Les initialisations de `fzf`, `zoxide` et NVM seront conditionnelles, silencieuses en cas d'absence et compatibles avec les chemins créés par les étapes existantes.
+
+Le script préservera les alias, exports et fonctions hors de son bloc géré. Il vérifiera `zsh -n ~/.zshrc`, puis ouvrira un shell interactif non connecté pour confirmer l'absence d'erreur de chargement avant de valider le sous-point `theme.zsh`.
+
+### Sauvegarde, restauration et idempotence
+
+Avant la première modification, `lib/theme.sh` enregistrera dans le répertoire d'état :
+
+- chaque valeur GSettings qui sera remplacée, avec son schéma et son type ;
+- la liste des extensions déjà installées et activées ;
+- les fichiers Zsh concernés avec leurs permissions ;
+- la version du profil et les versions réellement installées.
+
+Les sauvegardes seront datées et écrites atomiquement. Elles ne contiendront aucune branche dconf hors liste blanche. `scripts/restore-theme.sh --dry-run` affichera les opérations de retour ; son exécution restaurera les valeurs originales, les états d'activation et les fichiers Zsh, sans désinstaller automatiquement une extension déjà présente avant Fedora Setup.
+
+Une seconde exécution avec la même configuration ne devra produire aucune modification. Une évolution du profil affichera les différences exactes avant application et créera une nouvelle sauvegarde.
+
+### Ordre d'exécution et contrôles
+
+L'étape suivra cet ordre : prévalidation de la session et des dépendances, résolution du manifeste, aperçu des changements, confirmation selon les options automatiques, sauvegarde, installation des composants, application GSettings, configuration des extensions, configuration Zsh, relecture puis résumé.
+
+Le mode `--dry-run` affichera chaque schéma, clé, ancienne valeur, nouvelle valeur, extension et fichier concerné sans écrire. Les erreurs d'une extension seront isolées et clairement rapportées ; elles ne masqueront pas la réussite des préférences GNOME ou de Zsh.
+
+Les tests devront couvrir :
+
+- le rejet des schémas, clés, UUID, types GVariant et chemins non autorisés ;
+- l'absence de chemins GSConnect sensibles, de localisation et d'identifiants matériels dans les profils ;
+- les dépendances et doublons du manifeste d'extensions ;
+- la vérification des métadonnées, versions GNOME et checksums ;
+- la syntaxe Zsh et la conservation du contenu utilisateur hors bloc géré ;
+- le `--dry-run`, la reprise après chaque sous-point, l'idempotence et le rollback ;
+- le comportement lorsqu'une extension, une police, un paquet ou une clé GSettings est indisponible.
+
 ## Validation finale
 
 Le script ne déclarera son exécution réussie qu'après les contrôles applicables :
@@ -728,6 +887,7 @@ Le script ne déclarera son exécution réussie qu'après les contrôles applica
 - validations des jeux sélectionnés avec `rpm -q`, `flatpak info` et leurs commandes de diagnostic ;
 - `fc-match` pour Fira Code, Fira Sans et Inter ;
 - vérification des applications par défaut choisies ;
+- relecture des préférences GNOME, des extensions et de la syntaxe Zsh lorsque le profil est activé ;
 - résumé des opérations ignorées, échouées ou nécessitant un redémarrage.
 
 ## Sources principales
@@ -746,5 +906,9 @@ Le script ne déclarera son exécution réussie qu'après les contrôles applica
 - [Bottles sur Flathub](https://flathub.org/apps/com.usebottles.bottles)
 - [Heroic sur Flathub](https://flathub.org/apps/com.heroicgameslauncher.hgl)
 - [RTK](https://github.com/rtk-ai/rtk)
+- [API GSettings de GLib](https://docs.gtk.org/gio/class.Settings.html)
+- [Administration dconf dans GNOME](https://help.gnome.org/admin/system-admin-guide/stable/dconf.html.en)
+- [Extensions GNOME](https://extensions.gnome.org/)
+- [Papirus dans Fedora](https://packages.fedoraproject.org/pkgs/papirus-icon-theme/papirus-icon-theme/)
 - [CachyOS COPR pour Fedora](https://github.com/CachyOS/copr-linux-cachyos)
 - [Guide CachyOS pour Fedora — Linuxtricks](https://www.linuxtricks.fr/wiki/fedora-installer-le-noyau-de-cachyos-pour-de-meilleures-perfs-gaming)

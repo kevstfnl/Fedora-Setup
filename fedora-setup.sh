@@ -17,8 +17,10 @@ source "$SCRIPT_DIR/lib/config.sh"
 source "$SCRIPT_DIR/lib/tasks.sh"
 # shellcheck source=lib/cachyos.sh
 source "$SCRIPT_DIR/lib/cachyos.sh"
+# shellcheck source=lib/theme.sh
+source "$SCRIPT_DIR/lib/theme.sh"
 
-readonly PROGRAM_VERSION="1.1.0"
+readonly PROGRAM_VERSION="1.2.0"
 
 CONFIG_PATH="$SCRIPT_DIR/config.ini"
 RESUME=false
@@ -44,7 +46,7 @@ Options :
   --help                Afficher cette aide.
 
 Étapes :
-  prepare, repositories, desktop, apps, development, gaming, cleanup, cachyos, validation
+  prepare, repositories, desktop, apps, development, gaming, cleanup, cachyos, theme, validation
 
 Exemples :
   ./fedora-setup.sh --config ./config.ini --dry-run
@@ -64,7 +66,8 @@ normalize_stage() {
     6 | gaming | games) printf 'gaming' ;;
     7 | cleanup | nettoyage) printf 'cleanup' ;;
     8 | cachyos) printf 'cachyos' ;;
-    9 | validation | validate) printf 'validation' ;;
+    9 | theme | profil) printf 'theme' ;;
+    10 | validation | validate) printf 'validation' ;;
     *)
       printf 'Étape inconnue : %s\n' "$1" >&2
       return 1
@@ -224,6 +227,11 @@ print_execution_plan() {
     print_boolean_choice "Addons CachyOS" "$INSTALL_CACHYOS_ADDONS"
     print_boolean_choice "Masquer GRUB après validation CachyOS" "$HIDE_GRUB_AFTER_CACHYOS"
   fi
+
+  log_info "Profil utilisateur :"
+  print_boolean_choice "Apparence et comportements GNOME" "$APPLY_THEME"
+  print_boolean_choice "Extensions GNOME" "$APPLY_GNOME_EXTENSIONS"
+  print_boolean_choice "Configuration Zsh" "$APPLY_ZSH_CONFIG"
 }
 
 load_configuration() {
@@ -290,15 +298,16 @@ main() {
   config_hash="$(sha256sum "$CONFIG_PATH" | awk '{print $1}')"
   state_set config_sha256 "$config_hash"
 
-  run_selected_stage prepare "Étape 1/9 — Préparation et mise à jour" stage_prepare
-  run_selected_stage repositories "Étape 2/9 — Dépôts, codecs et pilotes" stage_repositories_and_drivers
-  run_selected_stage desktop "Étape 3/9 — GNOME, shell et polices" stage_desktop
-  run_selected_stage apps "Étape 4/9 — Applications personnelles" stage_apps
-  run_selected_stage development "Étape 5/9 — Environnement de travail" stage_development
-  run_selected_stage gaming "Étape 6/9 — Jeux" stage_gaming
-  run_selected_stage cleanup "Étape 7/9 — Nettoyage des applications Fedora" stage_cleanup
-  run_selected_stage cachyos "Étape 8/9 — CachyOS expérimental" stage_cachyos
-  run_selected_stage validation "Étape 9/9 — Validation finale" stage_validation
+  run_selected_stage prepare "Étape 1/10 — Préparation et mise à jour" stage_prepare
+  run_selected_stage repositories "Étape 2/10 — Dépôts, codecs et pilotes" stage_repositories_and_drivers
+  run_selected_stage desktop "Étape 3/10 — GNOME, shell et polices" stage_desktop
+  run_selected_stage apps "Étape 4/10 — Applications personnelles" stage_apps
+  run_selected_stage development "Étape 5/10 — Environnement de travail" stage_development
+  run_selected_stage gaming "Étape 6/10 — Jeux" stage_gaming
+  run_selected_stage cleanup "Étape 7/10 — Nettoyage des applications Fedora" stage_cleanup
+  run_selected_stage cachyos "Étape 8/10 — CachyOS expérimental" stage_cachyos
+  run_selected_stage theme "Étape 9/10 — Profil GNOME et Zsh" stage_theme
+  run_selected_stage validation "Étape 10/10 — Validation finale" stage_validation
 
   state_set resume_required ""
   state_set last_success "$(date --iso-8601=seconds)"

@@ -503,15 +503,18 @@ configure_zsh_file() {
 install_zsh_environment() {
   ensure_dnf_packages zsh zsh-autosuggestions zsh-syntax-highlighting curl git
 
+  # Révision testée avec ce profil. Une installation existante est respectée ;
+  # seules les nouvelles installations créées par le projet sont épinglées.
+  local oh_my_zsh_commit="97b27bb2ec0701330b18c2d3e340b22e742b3fa8"
   if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-    local installer="$RUNTIME_TMP/oh-my-zsh-install.sh"
-    run_cmd "Téléchargement de l'installateur Oh My Zsh" curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o "$installer"
-    if ! is_true "$DRY_RUN"; then
-      state_set oh_my_zsh_installer_sha256 "$(sha256sum "$installer" | awk '{print $1}')"
-      run_cmd "Installation non interactive de Oh My Zsh" env RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh "$installer"
-    fi
+    run_cmd "Téléchargement de Oh My Zsh" git clone --filter=blob:none https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
+    run_cmd "Épinglage de Oh My Zsh" git -C "$HOME/.oh-my-zsh" checkout --detach "$oh_my_zsh_commit"
+    state_set oh_my_zsh_commit "$oh_my_zsh_commit"
   else
-    log_ok "Oh My Zsh est déjà présent."
+    [[ ! -L "$HOME/.oh-my-zsh" ]] || die "$HOME/.oh-my-zsh ne doit pas être un lien symbolique."
+    local installed_commit
+    installed_commit="$(git -C "$HOME/.oh-my-zsh" rev-parse HEAD 2>/dev/null || true)"
+    log_ok "Oh My Zsh est déjà présent (révision ${installed_commit:-inconnue}) ; il n'est pas remplacé."
   fi
 
   configure_zsh_file
@@ -975,5 +978,8 @@ stage_validation() {
   log_ok "Toutes les validations bloquantes ont réussi."
   if [[ "$(state_get login_required false)" == "true" ]]; then
     log_warn "Une nouvelle connexion est nécessaire pour utiliser Docker sans sudo."
+  fi
+  if [[ "$(state_get logout_required false)" == "true" ]]; then
+    log_warn "Déconnectez-vous puis reconnectez-vous pour charger complètement le profil GNOME et ses extensions."
   fi
 }

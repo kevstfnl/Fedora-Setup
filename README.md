@@ -17,6 +17,7 @@ Le script explique chaque action dans le terminal, demande confirmation pour les
 - Steam, Bottles, Lutris, Heroic, GameMode et Gamescope ;
 - suppression configurable des applications Fedora préinstallées inutilisées, suivie de `dnf autoremove` ;
 - en option, le noyau CachyOS et ses addons expérimentaux.
+- reproduction sauvegardée et restaurable du profil GNOME 50 et de la configuration Zsh.
 
 La spécification technique complète et les choix d'implémentation sont disponibles dans [`PLANS.md`](PLANS.md).
 
@@ -75,6 +76,7 @@ Les commentaires présents dans le fichier expliquent les conséquences des opti
 - `INSTALL_DOCKER=true` installe Docker, démarre son service, exécute `hello-world` et ajoute l'utilisateur au groupe `docker` ;
 - `INSTALL_NODE=true` installe le dernier correctif de Node.js 24 LTS via NVM, puis pnpm ;
 - `INSTALL_CACHYOS_ADDONS` et `HIDE_GRUB_AFTER_CACHYOS` sont ignorés lorsque `INSTALL_CACHYOS=false` ;
+- `APPLY_THEME`, `APPLY_GNOME_EXTENSIONS` et `APPLY_ZSH_CONFIG` peuvent être activés indépendamment ;
 - le lecteur vidéo Fedora est supprimé uniquement si MPV a réellement été installé ;
 - Firefox est supprimé uniquement si Brave a réellement été installé.
 
@@ -88,6 +90,31 @@ Toutes les applications encore présentes sont regroupées dans une seule transa
 > Vérifiez le plan avec `--dry-run` et conservez seulement les suppressions souhaitées. `dnf autoremove` peut proposer des bibliothèques utiles à un usage non détecté par DNF.
 
 Le fichier ne doit contenir aucun mot de passe, jeton ou autre secret.
+
+### Appliquer le profil GNOME et Zsh
+
+Les trois options suivantes contrôlent la personnalisation :
+
+```ini
+APPLY_THEME=true
+APPLY_GNOME_EXTENSIONS=true
+APPLY_ZSH_CONFIG=true
+```
+
+`APPLY_THEME` configure notamment Inter, Fira Code, Papirus-Dark, le mode sombre et désactive le collage par clic milieu. Le profil utilise une liste blanche : les écrans, souris, pavés tactiles, emplacements météo, appareils et certificats GSConnect ne sont jamais copiés.
+
+`APPLY_GNOME_EXTENSIONS` installe AppIndicator, Dash to Dock, Blur My Shell, GSConnect, Coverflow Alt-Tab, Add to Desktop, Tiling Assistant et Desktop Icons NG. Le script préfère les paquets Fedora ; les extensions absentes des dépôts utilisent une archive officielle GNOME 50 dont la version et le SHA-256 sont figés. Une déconnexion/reconnexion est nécessaire après l'ajout de nouvelles extensions.
+
+`APPLY_ZSH_CONFIG` conserve le contenu personnel de `~/.zshrc` hors d'un bloc clairement délimité. Le module géré charge Oh My Zsh avec le thème `clean`, les plugins disponibles, NVM, fzf, zoxide, l'autosuggestion et la coloration syntaxique.
+
+Avant toute modification, une sauvegarde ciblée est créée dans le répertoire d'état. Pour examiner puis restaurer le profil précédent :
+
+```bash
+./scripts/restore-theme.sh --dry-run
+./scripts/restore-theme.sh
+```
+
+Le restaurateur remet les anciennes valeurs GSettings, les états d'activation des extensions et les fichiers Zsh. Il demande séparément confirmation avant de désinstaller une extension utilisateur ajoutée par le profil et ne supprime aucun paquet système.
 
 ## 2. Valider la configuration
 
@@ -159,6 +186,7 @@ Les étapes disponibles sont :
 | `gaming` | Steam et outils de jeu |
 | `cleanup` | applications Fedora préinstallées et dépendances devenues inutiles |
 | `cachyos` | noyau et addons CachyOS expérimentaux |
+| `theme` | profil visuel GNOME, extensions et configuration Zsh |
 | `validation` | contrôles fonctionnels finaux |
 
 Exécuter uniquement les applications et les outils de développement :
@@ -261,8 +289,10 @@ Les fichiers importants sont :
 
 - `main.log` : journal détaillé du script principal ;
 - `uninstall-cachyos.log` : journal du désinstallateur ;
+- `restore-theme.log` : journal de la dernière restauration du profil ;
 - `steps/` : opérations déjà terminées ;
 - `values/` : versions résolues et informations nécessaires à la reprise.
+- `theme/backups/` : sauvegardes ciblées de GNOME, des extensions et de Zsh.
 
 En cas d'échec, consultez d'abord la fin du journal :
 
@@ -304,6 +334,9 @@ bash -n fedora-setup.sh lib/*.sh scripts/*.sh tests/run.sh
 
 # Simuler la désinstallation de CachyOS
 ./scripts/uninstall-cachyos.sh --dry-run
+
+# Simuler la restauration du profil GNOME/Zsh
+./scripts/restore-theme.sh --dry-run
 ```
 
 ## Structure du projet
@@ -317,7 +350,12 @@ lib/common.sh                   logs, état et garde-fous communs
 lib/config.sh                   parseur strict de config.ini
 lib/tasks.sh                    étapes Fedora et applications
 lib/cachyos.sh                  parcours CachyOS
+lib/theme.sh                    profil GNOME, extensions, Zsh et sauvegardes
+theme/gsettings.conf            liste blanche des préférences GNOME
+theme/extensions.conf           versions et sommes des extensions GNOME 50
+theme/zsh/managed.zsh           module Zsh installé dans le profil utilisateur
 scripts/select-cachy-kernel.sh  sélection contrôlée du noyau
 scripts/uninstall-cachyos.sh    désinstallation de CachyOS
+scripts/restore-theme.sh        restauration du profil utilisateur précédent
 tests/run.sh                    tests automatisés
 ```
