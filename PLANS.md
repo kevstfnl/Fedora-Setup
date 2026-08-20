@@ -106,7 +106,7 @@ Les options CLI auront priorité sur le fichier : valeurs internes par défaut, 
 
 `AUTO_CONFIRM_ALL_ACTIONS=true` étend cette automatisation aux confirmations sensibles ainsi qu'aux transactions DNF correspondantes, notamment l'activation des COPR, les swaps et les suppressions nécessaires. Ce mode ne contourne jamais l'authentification `sudo`, Secure Boot, les erreurs matérielles ou les deux démarrages manuels de validation CachyOS. `AUTO_REBOOT` reste la seule option autorisant un redémarrage automatique hors du parcours CachyOS.
 
-`AUTO_REBOOT=true` autorise un redémarrage automatique après sauvegarde de l'état. Il est volontairement ignoré lors du premier démarrage CachyOS, qui exige une sélection manuelle dans GRUB.
+`AUTO_REBOOT=true` autorise un redémarrage automatique après sauvegarde de l'état. Pour le redémarrage final, l'identifiant du démarrage courant est enregistré puis comparé au lancement suivant afin d'acquitter la recommandation et d'éviter une boucle. Il est volontairement ignoré lors du premier démarrage CachyOS, qui exige une sélection manuelle dans GRUB.
 
 Les dépendances implicites sont limitées et documentées :
 
@@ -115,6 +115,7 @@ Les dépendances implicites sont limitées et documentées :
 - `INSTALL_NODE=true` installe Node.js 24 LTS via NVM ainsi que pnpm ;
 - `INSTALL_CACHYOS=true` active uniquement le parcours expérimental détaillé ci-dessous ;
 - `INSTALL_CACHYOS_ADDONS=true` ajoute les réglages, ordonnanceurs et services CachyOS uniquement si le noyau CachyOS est lui-même activé ;
+- `HIDE_GRUB_AFTER_CACHYOS=true` réactive le masquage conditionnel Fedora seulement après les validations CachyOS ;
 - `NVIDIA_DRIVER=auto` sélectionne la branche RPM Fusion compatible ou ne fait rien en l'absence de GPU NVIDIA.
 
 `NVIDIA_DRIVER` accepte uniquement `auto` ou `disabled`. La valeur `disabled` interdit l'installation d'un pilote propriétaire, mais déclenche un avertissement si un GPU NVIDIA est détecté.
@@ -168,7 +169,7 @@ Fedora active déjà la compression Btrfs `zstd:1` par défaut. Le script ne doi
 | `INSTALL_CLAMUI` | ClamUI | Flathub | `io.github.linx_systems.ClamUI` et moteur ClamAV sur l'hôte |
 | `INSTALL_GEARLEVER` | Gear Lever | Flathub | `it.mijorus.gearlever` |
 
-MPV pourra être associé aux principaux types MIME vidéo et Brave défini comme navigateur par défaut. La désinstallation de Firefox ou d'un lecteur Fedora restera une option distincte.
+MPV pourra être associé aux principaux types MIME vidéo et Brave défini comme navigateur par défaut. Le lecteur vidéo Fedora ne sera supprimé que si MPV est installé avec succès ; Firefox suit la même règle avec Brave.
 
 > [!IMPORTANT]
 > Bitwarden Desktop ne remplace pas le trousseau GNOME utilisé par le système et les applications. Le script ne doit pas supprimer `gnome-keyring`.
@@ -205,6 +206,27 @@ Chaque élément est indépendant et contrôlé par sa clé `INSTALL_*` :
 | `INSTALL_GAMESCOPE` | Fedora | `gamescope` |
 
 Steam nécessite RPM Fusion Nonfree. Les applications Flatpak utilisent leurs propres runtimes : Heroic devra utiliser son gestionnaire Wine/Proton intégré lorsqu'un binaire installé sur l'hôte n'est pas visible depuis le bac à sable.
+
+### Étape 7 — Nettoyage des applications Fedora
+
+Chaque suppression hors remplacement conditionnel est contrôlée par une option explicite :
+
+| Option | Application | Paquet Fedora ciblé |
+| --- | --- | --- |
+| `SUPPRESSION_MEDIA_WRITER` | Fedora Media Writer | `mediawriter` |
+| `SUPPRESSION_CARTES` | Cartes | `gnome-maps` |
+| `SUPPRESSION_LIBREOFFICE` | Suite LibreOffice | tous les paquets installés nommés `libreoffice*` |
+| `SUPPRESSION_NUMERISEUR` | Numériseur de documents | `simple-scan` |
+| `SUPPRESSION_MACHINES` | Machines | `gnome-boxes` |
+| `SUPPRESSION_CAMERA` | Caméra | `snapshot`, ou l'ancien `cheese` s'il subsiste |
+| `SUPPRESSION_CONNEXIONS` | Connexions | `gnome-connections` |
+| `SUPPRESSION_CONTROLE_PARENTAL` | Contrôle parental | `malcontent-control` |
+| `SUPPRESSION_VISITE_GUIDEE` | Visite guidée | `gnome-tour` |
+| `SUPPRESSION_AIDE` | Aide GNOME | `yelp` |
+
+Le script construit une liste de noms de paquets installés exacte, sans transmettre de glob non résolu à DNF, puis effectue une seule transaction `dnf remove`. Si `INSTALL_MPV=true` et que `mpv` est présent, il ajoute `showtime` et l'ancien `totem` s'ils sont installés. Si `INSTALL_BRAVE=true` et que `brave-browser` est présent, il ajoute `firefox` et `firefox-langpacks`.
+
+Après cette transaction, `dnf autoremove` retire les dépendances que DNF marque comme inutilisées. Les deux transactions sont sensibles et ne reçoivent `--assumeyes` que lorsque `AUTO_CONFIRM_ALL_ACTIONS=true`. L'étape possède son propre checkpoint et reste idempotente.
 
 ## Étape optionnelle et expérimentale — Noyau CachyOS
 
@@ -320,6 +342,8 @@ Après reprise, le script vérifie :
 - la présence d'un périphérique ZRAM cohérent avec `zramctl` ;
 - la présence de `scx-scheds`, `scx-tools` et `scx-manager` ;
 - que `ananicy-cpp` est activé et actif.
+
+Après la validation du noyau et, le cas échéant, des addons, `HIDE_GRUB_AFTER_CACHYOS=true` supprime un éventuel `menu_show_once` résiduel puis définit `menu_auto_hide=1` avec `grub2-editenv`. Ce mécanisme Fedora masque GRUB sur une installation mono-système après un démarrage réussi, tout en préservant son affichage en multiboot ou après un échec.
 
 Les ordonnanceurs `sched-ext` et Ananicy peuvent fonctionner ensemble. En cas de blocage ou d'instabilité, le premier diagnostic consiste à arrêter et désactiver `ananicy-cpp`, sans supprimer immédiatement le noyau.
 

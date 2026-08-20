@@ -15,6 +15,7 @@ Le script explique chaque action dans le terminal, demande confirmation pour les
 - Brave, Bitwarden, MPV, Pinta, Upscayl, RustDesk, ClamAV, ClamUI et Gear Lever ;
 - Node.js 24 LTS avec NVM, pnpm, Docker Engine, VS Code, Bruno, Desktop Plus et RTK ;
 - Steam, Bottles, Lutris, Heroic, GameMode et Gamescope ;
+- suppression configurable des applications Fedora préinstallées inutilisées, suivie de `dnf autoremove` ;
 - en option, le noyau CachyOS et ses addons expérimentaux.
 
 La spécification technique complète et les choix d'implémentation sont disponibles dans [`PLANS.md`](PLANS.md).
@@ -73,7 +74,18 @@ Les commentaires présents dans le fichier expliquent les conséquences des opti
 - `INSTALL_CLAMUI=true` active également ClamAV, car ClamUI est seulement une interface graphique ;
 - `INSTALL_DOCKER=true` installe Docker, démarre son service, exécute `hello-world` et ajoute l'utilisateur au groupe `docker` ;
 - `INSTALL_NODE=true` installe le dernier correctif de Node.js 24 LTS via NVM, puis pnpm ;
-- `INSTALL_CACHYOS_ADDONS` est ignoré lorsque `INSTALL_CACHYOS=false`.
+- `INSTALL_CACHYOS_ADDONS` et `HIDE_GRUB_AFTER_CACHYOS` sont ignorés lorsque `INSTALL_CACHYOS=false` ;
+- le lecteur vidéo Fedora est supprimé uniquement si MPV a réellement été installé ;
+- Firefox est supprimé uniquement si Brave a réellement été installé.
+
+### Supprimer les applications Fedora inutilisées
+
+Chaque application possède une option `SUPPRESSION_*` indépendante dans `config.ini`. La valeur `true` constitue la confirmation explicite de sa suppression : Media Writer, Cartes, LibreOffice, Numériseur de documents, Machines, Caméra, Connexions, Contrôle parental, Visite guidée ou Aide GNOME.
+
+Toutes les applications encore présentes sont regroupées dans une seule transaction DNF. Le script lance ensuite `dnf autoremove` pour retirer les dépendances que DNF considère comme devenues inutiles. Avec `AUTO_CONFIRM_ALL_ACTIONS=false`, DNF affiche la transaction et attend encore une validation au terminal ; avec `true`, le nettoyage est exécuté sans surveillance.
+
+> [!CAUTION]
+> Vérifiez le plan avec `--dry-run` et conservez seulement les suppressions souhaitées. `dnf autoremove` peut proposer des bibliothèques utiles à un usage non détecté par DNF.
 
 Le fichier ne doit contenir aucun mot de passe, jeton ou autre secret.
 
@@ -117,7 +129,7 @@ Pendant l'exécution :
 
 - les étapes et commandes sont affichées clairement ;
 - les installations ordinaires suivent `AUTO_CONFIRM_SAFE_ACTIONS` ;
-- les suppressions, remplacements de paquets et changements sensibles demandent toujours confirmation ;
+- les suppressions, remplacements de paquets et changements sensibles suivent `AUTO_CONFIRM_ALL_ACTIONS` ;
 - une erreur bloque l'étape concernée sans effacer les opérations déjà validées ;
 - le script indique lorsqu'une reconnexion ou un redémarrage est nécessaire.
 
@@ -131,6 +143,8 @@ Après une interruption ou un redémarrage demandé par le script, utilisez :
 
 Les opérations terminées possèdent un point de contrôle et ne sont pas rejouées inutilement. Si un redémarrage est enregistré comme nécessaire, une exécution normale sans `--resume` sera refusée afin d'éviter de poursuivre dans un état incohérent.
 
+Lors du redémarrage final, le script enregistre l'identifiant du démarrage courant. Au lancement suivant, un nouvel identifiant acquitte automatiquement la recommandation afin d'éviter une boucle de redémarrages.
+
 ## Exécuter seulement certaines étapes
 
 Les étapes disponibles sont :
@@ -143,6 +157,7 @@ Les étapes disponibles sont :
 | `apps` | applications personnelles |
 | `development` | Node.js, Docker, VS Code, Bruno, Desktop Plus, RTK et outils CLI |
 | `gaming` | Steam et outils de jeu |
+| `cleanup` | applications Fedora préinstallées et dépendances devenues inutiles |
 | `cachyos` | noyau et addons CachyOS expérimentaux |
 | `validation` | contrôles fonctionnels finaux |
 
@@ -194,6 +209,7 @@ Activez ensuite dans `config.ini` :
 ```ini
 INSTALL_CACHYOS=true
 INSTALL_CACHYOS_ADDONS=true
+HIDE_GRUB_AFTER_CACHYOS=true
 ```
 
 Le déroulement comprend plusieurs lancements volontaires :
@@ -204,7 +220,10 @@ Le déroulement comprend plusieurs lancements volontaires :
 4. si GRUB reste masqué par le firmware, maintenez la touche `Maj` gauche ou tapotez `F8` pendant le démarrage ;
 5. exécutez `./fedora-setup.sh --resume` pour valider le noyau et installer les addons ;
 6. redémarrez une seconde fois sur CachyOS ;
-7. exécutez à nouveau `./fedora-setup.sh --resume` pour valider les addons et terminer la configuration.
+7. exécutez à nouveau `./fedora-setup.sh --resume` pour valider les addons et terminer la configuration ;
+8. après ces validations, `HIDE_GRUB_AFTER_CACHYOS=true` réactive automatiquement le masquage conditionnel Fedora.
+
+Le masquage ne s'applique normalement qu'à une machine mono-système après un démarrage réussi. En multiboot ou après un échec de démarrage, Fedora conserve le menu. Vous pouvez toujours le faire apparaître en maintenant `Maj` gauche ou en tapotant `F8`.
 
 Si Secure Boot est actif, le script s'arrête avant d'ajouter le dépôt ou d'installer le noyau. Il ne tente jamais de modifier les réglages UEFI.
 

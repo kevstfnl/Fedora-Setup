@@ -556,6 +556,10 @@ request_configured_reboot() {
   local checkpoint="$1"
   local reason="$2"
 
+  local boot_id
+  boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+  [[ "$boot_id" =~ ^[0-9a-fA-F-]{36}$ ]] || die "Identifiant du démarrage courant invalide."
+  state_set reboot_requested_boot_id "$boot_id"
   state_set resume_required "$checkpoint"
   log_warn "$reason"
 
@@ -583,4 +587,28 @@ request_configured_reboot() {
 
   log_warn "Redémarrage différé. Relancez ensuite avec --resume."
   exit 0
+}
+
+reconcile_final_reboot_checkpoint() {
+  local resume_requested="$1"
+  [[ "$(state_get resume_required)" == "final" ]] || return 0
+
+  local requested_boot_id current_boot_id
+  requested_boot_id="$(state_get reboot_requested_boot_id)"
+  current_boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+
+  if [[ -n "$requested_boot_id" && "$requested_boot_id" != "$current_boot_id" ]]; then
+    state_set reboot_recommended false
+    state_set reboot_requested_boot_id ""
+    state_set resume_required ""
+    log_ok "Redémarrage final détecté : la recommandation est acquittée."
+    return 0
+  fi
+
+  # Compatibilité avec les checkpoints écrits avant l'enregistrement du boot ID.
+  if [[ -z "$requested_boot_id" && "$resume_requested" == "true" ]]; then
+    state_set reboot_recommended false
+    state_set resume_required ""
+    log_ok "Ancien checkpoint de redémarrage final acquitté avec --resume."
+  fi
 }

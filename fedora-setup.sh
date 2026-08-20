@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/lib/tasks.sh"
 # shellcheck source=lib/cachyos.sh
 source "$SCRIPT_DIR/lib/cachyos.sh"
 
-readonly PROGRAM_VERSION="1.0.0"
+readonly PROGRAM_VERSION="1.1.0"
 
 CONFIG_PATH="$SCRIPT_DIR/config.ini"
 RESUME=false
@@ -44,7 +44,7 @@ Options :
   --help                Afficher cette aide.
 
 Étapes :
-  prepare, repositories, desktop, apps, development, gaming, cachyos, validation
+  prepare, repositories, desktop, apps, development, gaming, cleanup, cachyos, validation
 
 Exemples :
   ./fedora-setup.sh --config ./config.ini --dry-run
@@ -62,8 +62,9 @@ normalize_stage() {
     4 | apps | applications) printf 'apps' ;;
     5 | development | dev) printf 'development' ;;
     6 | gaming | games) printf 'gaming' ;;
-    7 | cachyos) printf 'cachyos' ;;
-    8 | validation | validate) printf 'validation' ;;
+    7 | cleanup | nettoyage) printf 'cleanup' ;;
+    8 | cachyos) printf 'cachyos' ;;
+    9 | validation | validate) printf 'validation' ;;
     *)
       printf 'Étape inconnue : %s\n' "$1" >&2
       return 1
@@ -186,6 +187,19 @@ print_execution_plan() {
   print_boolean_choice "RustDesk" "$INSTALL_RUSTDESK"
   print_boolean_choice "Gear Lever" "$INSTALL_GEARLEVER"
 
+  log_info "Suppressions Fedora confirmées dans la configuration :"
+  print_boolean_choice "Fedora Media Writer" "$SUPPRESSION_MEDIA_WRITER"
+  print_boolean_choice "Cartes" "$SUPPRESSION_CARTES"
+  print_boolean_choice "LibreOffice" "$SUPPRESSION_LIBREOFFICE"
+  print_boolean_choice "Numériseur de documents" "$SUPPRESSION_NUMERISEUR"
+  print_boolean_choice "Machines" "$SUPPRESSION_MACHINES"
+  print_boolean_choice "Caméra" "$SUPPRESSION_CAMERA"
+  print_boolean_choice "Connexions" "$SUPPRESSION_CONNEXIONS"
+  print_boolean_choice "Contrôle parental" "$SUPPRESSION_CONTROLE_PARENTAL"
+  print_boolean_choice "Visite guidée" "$SUPPRESSION_VISITE_GUIDEE"
+  print_boolean_choice "Aide GNOME" "$SUPPRESSION_AIDE"
+  log_info "  Conditionnel : lecteur vidéo avec MPV ; Firefox avec Brave"
+
   log_info "Développement :"
   print_boolean_choice "Visual Studio Code" "$INSTALL_VSCODE"
   print_boolean_choice "Desktop Plus" "$INSTALL_DESKTOP_PLUS"
@@ -208,6 +222,7 @@ print_execution_plan() {
   print_boolean_choice "Noyau CachyOS expérimental" "$INSTALL_CACHYOS"
   if [[ "$INSTALL_CACHYOS" == "true" ]]; then
     print_boolean_choice "Addons CachyOS" "$INSTALL_CACHYOS_ADDONS"
+    print_boolean_choice "Masquer GRUB après validation CachyOS" "$HIDE_GRUB_AFTER_CACHYOS"
   fi
 }
 
@@ -266,6 +281,7 @@ main() {
 
   init_runtime main
   log_info "Fedora Setup $PROGRAM_VERSION démarre."
+  reconcile_final_reboot_checkpoint "$RESUME"
   check_resume_contract
   print_execution_plan
   system_preflight
@@ -274,14 +290,15 @@ main() {
   config_hash="$(sha256sum "$CONFIG_PATH" | awk '{print $1}')"
   state_set config_sha256 "$config_hash"
 
-  run_selected_stage prepare "Étape 1/8 — Préparation et mise à jour" stage_prepare
-  run_selected_stage repositories "Étape 2/8 — Dépôts, codecs et pilotes" stage_repositories_and_drivers
-  run_selected_stage desktop "Étape 3/8 — GNOME, shell et polices" stage_desktop
-  run_selected_stage apps "Étape 4/8 — Applications personnelles" stage_apps
-  run_selected_stage development "Étape 5/8 — Environnement de travail" stage_development
-  run_selected_stage gaming "Étape 6/8 — Jeux" stage_gaming
-  run_selected_stage cachyos "Étape 7/8 — CachyOS expérimental" stage_cachyos
-  run_selected_stage validation "Étape 8/8 — Validation finale" stage_validation
+  run_selected_stage prepare "Étape 1/9 — Préparation et mise à jour" stage_prepare
+  run_selected_stage repositories "Étape 2/9 — Dépôts, codecs et pilotes" stage_repositories_and_drivers
+  run_selected_stage desktop "Étape 3/9 — GNOME, shell et polices" stage_desktop
+  run_selected_stage apps "Étape 4/9 — Applications personnelles" stage_apps
+  run_selected_stage development "Étape 5/9 — Environnement de travail" stage_development
+  run_selected_stage gaming "Étape 6/9 — Jeux" stage_gaming
+  run_selected_stage cleanup "Étape 7/9 — Nettoyage des applications Fedora" stage_cleanup
+  run_selected_stage cachyos "Étape 8/9 — CachyOS expérimental" stage_cachyos
+  run_selected_stage validation "Étape 9/9 — Validation finale" stage_validation
 
   state_set resume_required ""
   state_set last_success "$(date --iso-8601=seconds)"

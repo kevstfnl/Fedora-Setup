@@ -301,6 +301,23 @@ EOF
   fi
 }
 
+hide_grub_after_cachyos_validation() {
+  log_info "Les démarrages de test CachyOS ont réussi ; restauration de l'expérience GRUB Fedora."
+  run_cmd "Suppression de l'affichage GRUB ponctuel" sudo grub2-editenv - unset menu_show_once
+  run_cmd "Activation du masquage conditionnel de GRUB" sudo grub2-editenv - set menu_auto_hide=1
+
+  if ! is_true "$DRY_RUN"; then
+    local grub_environment
+    grub_environment="$(sudo grub2-editenv - list)"
+    while IFS= read -r grub_variable; do
+      log_info "  GRUB : $grub_variable"
+    done <<<"$grub_environment"
+    grep -qx 'menu_auto_hide=1' <<<"$grub_environment" ||
+      die "GRUB n'a pas confirmé l'activation de menu_auto_hide=1."
+    log_ok "GRUB sera masqué sur une machine mono-système après un démarrage réussi."
+  fi
+}
+
 stage_cachyos() {
   if [[ "$INSTALL_CACHYOS" != "true" ]]; then
     log_info "INSTALL_CACHYOS=false : aucun dépôt, noyau ou addon CachyOS ne sera modifié."
@@ -359,5 +376,6 @@ stage_cachyos() {
   fi
 
   run_step_once cachyos.default-hook "Maintien sûr de CachyOS comme noyau par défaut" install_cachyos_default_hook
+  run_if_enabled HIDE_GRUB_AFTER_CACHYOS cachyos.hide-grub "Masquage conditionnel de GRUB après validation" hide_grub_after_cachyos_validation
   state_set cachyos_complete true
 }

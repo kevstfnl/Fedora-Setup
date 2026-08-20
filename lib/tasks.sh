@@ -625,6 +625,120 @@ stage_apps() {
   run_if_enabled INSTALL_CLAMUI apps.clamui "ClamUI" install_clamui
 }
 
+collect_cleanup_packages() {
+  local selected_name="$1"
+  local flag_name="$2"
+  local label="$3"
+  shift 3
+  local -n selected_ref="$selected_name"
+
+  if [[ "${!flag_name}" != "true" ]]; then
+    log_info "Conservé par $flag_name=false : $label"
+    return 0
+  fi
+
+  log_warn "Suppression confirmée dans la configuration : $label"
+  local package
+  for package in "$@"; do
+    if package_installed "$package"; then
+      selected_ref["$package"]=1
+      log_info "  Paquet installé sélectionné : $package"
+    else
+      log_info "  Déjà absent : $package"
+    fi
+  done
+}
+
+remove_preinstalled_fedora_apps() {
+  local -A selected_packages=()
+  local cleanup_requested=false
+
+  local -a cleanup_flags=(
+    SUPPRESSION_MEDIA_WRITER
+    SUPPRESSION_CARTES
+    SUPPRESSION_LIBREOFFICE
+    SUPPRESSION_NUMERISEUR
+    SUPPRESSION_MACHINES
+    SUPPRESSION_CAMERA
+    SUPPRESSION_CONNEXIONS
+    SUPPRESSION_CONTROLE_PARENTAL
+    SUPPRESSION_VISITE_GUIDEE
+    SUPPRESSION_AIDE
+  )
+  local flag_name
+  for flag_name in "${cleanup_flags[@]}"; do
+    [[ "${!flag_name}" == "true" ]] && cleanup_requested=true
+  done
+
+  collect_cleanup_packages selected_packages SUPPRESSION_MEDIA_WRITER "Fedora Media Writer" mediawriter
+  collect_cleanup_packages selected_packages SUPPRESSION_CARTES "Cartes" gnome-maps
+  collect_cleanup_packages selected_packages SUPPRESSION_NUMERISEUR "Numériseur de documents" simple-scan
+  collect_cleanup_packages selected_packages SUPPRESSION_MACHINES "Machines" gnome-boxes
+  collect_cleanup_packages selected_packages SUPPRESSION_CAMERA "Caméra" snapshot cheese
+  collect_cleanup_packages selected_packages SUPPRESSION_CONNEXIONS "Connexions" gnome-connections
+  collect_cleanup_packages selected_packages SUPPRESSION_CONTROLE_PARENTAL "Contrôle parental" malcontent-control
+  collect_cleanup_packages selected_packages SUPPRESSION_VISITE_GUIDEE "Visite guidée" gnome-tour
+  collect_cleanup_packages selected_packages SUPPRESSION_AIDE "Aide GNOME" yelp
+
+  if [[ "$SUPPRESSION_LIBREOFFICE" == "true" ]]; then
+    log_warn "Suppression confirmée dans la configuration : LibreOffice"
+    local libreoffice_package
+    while IFS= read -r libreoffice_package; do
+      [[ -n "$libreoffice_package" ]] || continue
+      selected_packages["$libreoffice_package"]=1
+      log_info "  Paquet LibreOffice installé sélectionné : $libreoffice_package"
+    done < <(rpm -qa --qf '%{NAME}\n' 'libreoffice*' | sort -u)
+  else
+    log_info "Conservé par SUPPRESSION_LIBREOFFICE=false : LibreOffice"
+  fi
+
+  if [[ "$INSTALL_MPV" == "true" ]] && package_installed mpv; then
+    cleanup_requested=true
+    log_info "MPV est installé : suppression du lecteur vidéo Fedora de remplacement."
+    local video_package
+    for video_package in showtime totem; do
+      package_installed "$video_package" && selected_packages["$video_package"]=1
+    done
+  else
+    log_info "Lecteur vidéo Fedora conservé : MPV n'est pas sélectionné ou pas installé."
+  fi
+
+  if [[ "$INSTALL_BRAVE" == "true" ]] && package_installed brave-browser; then
+    cleanup_requested=true
+    log_info "Brave est installé : suppression de Firefox et de ses packs de langues."
+    local firefox_package
+    for firefox_package in firefox firefox-langpacks; do
+      package_installed "$firefox_package" && selected_packages["$firefox_package"]=1
+    done
+  else
+    log_info "Firefox conservé : Brave n'est pas sélectionné ou pas installé."
+  fi
+
+  local -a packages=()
+  if ((${#selected_packages[@]} > 0)); then
+    mapfile -t packages < <(printf '%s\n' "${!selected_packages[@]}" | sort)
+    log_warn "Paquets préinstallés qui seront supprimés (${#packages[@]}) :"
+    local selected_package
+    for selected_package in "${packages[@]}"; do
+      log_warn "  - $selected_package"
+    done
+    run_sensitive_dnf "Suppression des applications Fedora sélectionnées" remove "${packages[@]}"
+  else
+    log_ok "Aucune application préinstallée sélectionnée n'est encore présente."
+  fi
+
+  if [[ "$cleanup_requested" == "true" ]]; then
+    log_warn "DNF va maintenant rechercher et supprimer les dépendances devenues inutiles."
+    run_sensitive_dnf "Suppression des dépendances DNF inutilisées" autoremove
+  else
+    log_info "Nettoyage DNF ignoré : aucune suppression n'est demandée."
+  fi
+}
+
+stage_cleanup() {
+  run_step_once cleanup.preinstalled "Suppression des applications Fedora préinstallées" remove_preinstalled_fedora_apps
+}
+
 nvm_directory() {
   if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
     printf '%s/nvm' "$XDG_CONFIG_HOME"

@@ -23,6 +23,8 @@ trap cleanup EXIT
 source "$PROJECT_DIR/lib/common.sh"
 # shellcheck source=../lib/config.sh
 source "$PROJECT_DIR/lib/config.sh"
+# shellcheck source=../lib/tasks.sh
+source "$PROJECT_DIR/lib/tasks.sh"
 
 passed=0
 
@@ -53,6 +55,8 @@ test_current_config() {
   [[ "$INSTALL_CACHYOS_ADDONS" == "true" ]] || fail "INSTALL_CACHYOS_ADDONS"
   [[ "$AUTO_CONFIRM_ALL_ACTIONS" == "true" ]] || fail "AUTO_CONFIRM_ALL_ACTIONS"
   [[ "$NVIDIA_DRIVER" == "auto" ]] || fail "NVIDIA_DRIVER"
+  [[ "$SUPPRESSION_MEDIA_WRITER" == "true" ]] || fail "SUPPRESSION_MEDIA_WRITER"
+  [[ "$HIDE_GRUB_AFTER_CACHYOS" == "true" ]] || fail "HIDE_GRUB_AFTER_CACHYOS"
   ok "config.ini est accepté et ses valeurs importantes sont chargées"
 }
 
@@ -116,6 +120,8 @@ test_static_guards() {
   fi
   grep -Fq "grep -q '^nvidia ' /proc/modules" "$PROJECT_DIR/lib/cachyos.sh" ||
     fail "le chargement NVIDIA doit être vérifié directement dans /proc/modules"
+  grep -Fq 'grub2-editenv - set menu_auto_hide=1' "$PROJECT_DIR/lib/cachyos.sh" ||
+    fail "GRUB doit pouvoir être remasqué après les tests CachyOS"
   ok "les garde-fous statiques principaux sont présents"
 }
 
@@ -175,6 +181,52 @@ test_stateful_command_keeps_environment() {
   ok "les commandes NVM conservent leurs changements d'environnement"
 }
 
+test_final_reboot_checkpoint_is_cleared() {
+  STATE_VALUES_DIR="$TEST_TMP/reboot-values"
+  mkdir -p "$STATE_VALUES_DIR"
+  DRY_RUN=false
+  LOG_FILE="$TEST_TMP/reboot.log"
+
+  state_set resume_required final
+  state_set reboot_recommended true
+  state_set reboot_requested_boot_id 00000000-0000-0000-0000-000000000000
+  reconcile_final_reboot_checkpoint false
+
+  [[ -z "$(state_get resume_required)" ]] || fail "le checkpoint final doit être effacé après redémarrage"
+  [[ "$(state_get reboot_recommended)" == "false" ]] || fail "la recommandation de redémarrage doit être acquittée"
+  ok "le redémarrage final ne provoque pas de boucle"
+}
+
+test_preinstalled_cleanup_is_conditional() {
+  set_config_defaults
+  SUPPRESSION_MEDIA_WRITER=true
+  INSTALL_MPV=true
+  INSTALL_BRAVE=true
+  DRY_RUN=false
+  LOG_FILE="$TEST_TMP/cleanup.log"
+
+  package_installed() {
+    case "$1" in
+      mediawriter | mpv | showtime | brave-browser | firefox) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  rpm() {
+    return 0
+  }
+  local -a dnf_calls=()
+  run_sensitive_dnf() {
+    dnf_calls+=("$(render_command "$@")")
+  }
+
+  remove_preinstalled_fedora_apps
+  [[ "${dnf_calls[0]}" == *"remove firefox mediawriter showtime"* ]] ||
+    fail "les remplacements installés doivent déclencher les suppressions conditionnelles"
+  [[ "${dnf_calls[1]}" == *"autoremove"* ]] ||
+    fail "dnf autoremove doit suivre les suppressions"
+  ok "le nettoyage Fedora respecte la configuration et les remplacements"
+}
+
 test_current_config
 test_invalid_configs
 test_entrypoints
@@ -183,5 +235,7 @@ test_static_guards
 test_safe_dnf_confirmation_mode
 test_full_automatic_dnf_mode
 test_stateful_command_keeps_environment
+test_final_reboot_checkpoint_is_cleared
+test_preinstalled_cleanup_is_conditional
 
 printf '1..%d\n' "$passed"
