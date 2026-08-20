@@ -252,6 +252,10 @@ test_theme_profiles_are_strict() {
   THEME_EXTENSIONS_PROFILE="$original_extensions"
 
   validate_theme_profiles >/dev/null || fail "les manifestes officiels doivent rester valides"
+  theme_profile_contains_setting org.gnome.shell.extensions.blur-my-shell pipelines blur-my-shell@aunetx ||
+    fail "le pipeline personnalisé Blur My Shell doit rester dans le profil"
+  theme_profile_contains_setting org.gnome.shell.extensions.dash-to-dock show-apps-at-top dash-to-dock@micxgx.gmail.com ||
+    fail "la disposition Dash to Dock doit rester dans le profil"
   ok "les profils theme officiels sont stricts et exempts de données privées"
 }
 
