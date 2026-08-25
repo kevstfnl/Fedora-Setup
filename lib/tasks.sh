@@ -9,6 +9,32 @@ HAS_NVIDIA_GPU=false
 GPU_DESCRIPTION=""
 SECURE_BOOT_STATE="unknown"
 
+configure_static_hostname() {
+  if [[ -z "${HOSTNAME:-}" ]]; then
+    log_info "Configuration du hostname désactivée."
+    return 0
+  fi
+
+  local current_static
+  current_static="$(hostnamectl --static 2>/dev/null || true)"
+
+  if [[ "$current_static" == "$HOSTNAME" ]]; then
+    log_ok "Hostname statique déjà configuré : $HOSTNAME"
+    return 0
+  fi
+
+  confirm_action safe "Définir le hostname statique sur « $HOSTNAME » ?" || return 0
+
+  run_cmd "Configuration du hostname statique : $HOSTNAME" sudo hostnamectl set-hostname "$HOSTNAME"
+
+  if ! is_true "$DRY_RUN"; then
+    [[ "$(hostnamectl --static 2>/dev/null)" == "$HOSTNAME" ]] ||
+      die "Échec de la configuration du hostname."
+
+    log_ok "Hostname statique configuré : $HOSTNAME"
+  fi
+}
+
 run_if_enabled() {
   local flag_name="$1"
   local step="$2"
@@ -218,6 +244,7 @@ upgrade_fedora() {
 }
 
 stage_prepare() {
+  run_step_once prepare.hostname "Configuration du nom de machine" configure_static_hostname
   run_step_once prepare.dnf "Configuration prudente de DNF5" configure_dnf
   run_step_once prepare.btrfs "Audit du système de fichiers" audit_btrfs
   run_step_once prepare.upgrade "Mise à jour initiale de Fedora" upgrade_fedora
