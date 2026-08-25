@@ -53,6 +53,7 @@ declare -Ag CONFIG_DEFAULTS=(
 
 declare -Ag CONFIG_TYPES=(
   [CONFIG_VERSION]="version"
+  [HOSTNAME]="hostname"
   [NVIDIA_DRIVER]="nvidia_mode"
 )
 
@@ -131,6 +132,12 @@ validate_config_value() {
     version)
       if [[ "$value" != "1" ]]; then
         config_error "CONFIG_VERSION=$value n'est pas pris en charge (version attendue : 1)."
+        return 1
+      fi
+      ;;
+    hostname)
+      if [[ "$value" != "disabled" && ! "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+        config_error "HOSTNAME contient un nom de machine invalide : « $value »."
         return 1
       fi
       ;;

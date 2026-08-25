@@ -10,7 +10,7 @@ GPU_DESCRIPTION=""
 SECURE_BOOT_STATE="unknown"
 
 configure_static_hostname() {
-  if [[ -z "${HOSTNAME:-}" ]]; then
+  if [[ "$HOSTNAME" == "disabled" ]]; then
     log_info "Configuration du hostname désactivée."
     return 0
   fi
