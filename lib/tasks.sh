@@ -622,6 +622,7 @@ install_bitwarden() { ensure_flatpak_app com.bitwarden.desktop; }
 install_pinta() { ensure_dnf_packages pinta; }
 install_upscayl() { ensure_flatpak_app org.upscayl.Upscayl; }
 install_rustdesk() { ensure_flatpak_app com.rustdesk.RustDesk; }
+install_onlyoffice() { ensure_flatpak_app org.onlyoffice.desktopeditors; }
 
 install_mpv() {
   ensure_dnf_packages mpv
@@ -653,6 +654,7 @@ stage_apps() {
   run_if_enabled INSTALL_RUSTDESK apps.rustdesk "RustDesk" install_rustdesk
   run_if_enabled INSTALL_CLAMAV apps.clamav "ClamAV" install_clamav
   run_if_enabled INSTALL_CLAMUI apps.clamui "ClamUI" install_clamui
+  run_if_enabled INSTALL_ONLYOFFICE apps.onlyoffice "ONLYOFFICE Desktop Editors" install_onlyoffice
 }
 
 collect_cleanup_packages() {
@@ -909,7 +911,6 @@ install_steam() {
   enable_rpmfusion
   ensure_dnf_packages steam
 }
-install_bottles() { ensure_flatpak_app com.usebottles.bottles; }
 install_lutris() { ensure_dnf_packages lutris; }
 install_heroic() { ensure_flatpak_app com.heroicgameslauncher.hgl; }
 install_gamemode() { ensure_dnf_packages gamemode gamemode.i686; }
@@ -917,7 +918,6 @@ install_gamescope() { ensure_dnf_packages gamescope; }
 
 stage_gaming() {
   run_if_enabled INSTALL_STEAM gaming.steam "Steam" install_steam
-  run_if_enabled INSTALL_BOTTLES gaming.bottles "Bottles" install_bottles
   run_if_enabled INSTALL_LUTRIS gaming.lutris "Lutris" install_lutris
   run_if_enabled INSTALL_HEROIC gaming.heroic "Heroic Games Launcher" install_heroic
   run_if_enabled INSTALL_GAMEMODE gaming.gamemode "GameMode" install_gamemode
@@ -963,9 +963,9 @@ stage_validation() {
   validate_flatpak_if_enabled INSTALL_RUSTDESK com.rustdesk.RustDesk
   validate_flatpak_if_enabled INSTALL_CLAMUI io.github.linx_systems.ClamUI
   validate_flatpak_if_enabled INSTALL_GEARLEVER it.mijorus.gearlever
+  validate_flatpak_if_enabled INSTALL_ONLYOFFICE org.onlyoffice.desktopeditors
   validate_flatpak_if_enabled INSTALL_DESKTOP_PLUS org.desktop_plus.desktop-plus
   validate_flatpak_if_enabled INSTALL_BRUNO com.usebruno.Bruno
-  validate_flatpak_if_enabled INSTALL_BOTTLES com.usebottles.bottles
   validate_flatpak_if_enabled INSTALL_HEROIC com.heroicgameslauncher.hgl
   validate_rpm_if_enabled INSTALL_STEAM steam
   validate_rpm_if_enabled INSTALL_LUTRIS lutris

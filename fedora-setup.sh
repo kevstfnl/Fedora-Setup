@@ -189,6 +189,7 @@ print_execution_plan() {
   print_boolean_choice "MPV" "$INSTALL_MPV"
   print_boolean_choice "RustDesk" "$INSTALL_RUSTDESK"
   print_boolean_choice "Gear Lever" "$INSTALL_GEARLEVER"
+  print_boolean_choice "ONLYOFFICE Desktop Editors" "$INSTALL_ONLYOFFICE"
 
   log_info "Suppressions Fedora confirmées dans la configuration :"
   print_boolean_choice "Fedora Media Writer" "$SUPPRESSION_MEDIA_WRITER"
@@ -214,7 +215,6 @@ print_execution_plan() {
 
   log_info "Jeux :"
   print_boolean_choice "Steam" "$INSTALL_STEAM"
-  print_boolean_choice "Bottles" "$INSTALL_BOTTLES"
   print_boolean_choice "Lutris" "$INSTALL_LUTRIS"
   print_boolean_choice "Heroic" "$INSTALL_HEROIC"
   print_boolean_choice "GameMode" "$INSTALL_GAMEMODE"

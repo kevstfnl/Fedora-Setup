@@ -173,6 +173,7 @@ Fedora active déjà la compression Btrfs `zstd:1` par défaut. Le script ne doi
 | `INSTALL_CLAMAV` | ClamAV | Fedora | `clamav clamav-freshclam` |
 | `INSTALL_CLAMUI` | ClamUI | Flathub | `io.github.linx_systems.ClamUI` et moteur ClamAV sur l'hôte |
 | `INSTALL_GEARLEVER` | Gear Lever | Flathub | `it.mijorus.gearlever` |
+| `INSTALL_ONLYOFFICE` | ONLYOFFICE Desktop Editors | Flathub | `org.onlyoffice.desktopeditors` |
 
 MPV pourra être associé aux principaux types MIME vidéo et Brave défini comme navigateur par défaut. Le lecteur vidéo Fedora ne sera supprimé que si MPV est installé avec succès ; Firefox suit la même règle avec Brave.
 
@@ -204,7 +205,6 @@ Chaque élément est indépendant et contrôlé par sa clé `INSTALL_*` :
 | Option | Source | Paquet ou identifiant |
 | --- | --- | --- |
 | `INSTALL_STEAM` | RPM Fusion Nonfree | `steam` |
-| `INSTALL_BOTTLES` | Flathub | `com.usebottles.bottles` |
 | `INSTALL_LUTRIS` | Fedora | `lutris` |
 | `INSTALL_HEROIC` | Flathub | `com.heroicgameslauncher.hgl` |
 | `INSTALL_GAMEMODE` | Fedora | `gamemode` et prise en charge 32 bits |
@@ -556,8 +556,15 @@ flatpak install --system flathub \
   com.bitwarden.desktop \
   org.upscayl.Upscayl \
   com.rustdesk.RustDesk \
-  io.github.linx_systems.ClamUI
+  io.github.linx_systems.ClamUI \
+  org.onlyoffice.desktopeditors
 ```
+
+ONLYOFFICE Desktop Editors est installé en Flatpak système depuis Flathub. Ce
+choix évite un dépôt RPM tiers, bénéficie du cycle de mise à jour Flatpak et
+conserve l'intégration au menu des applications et aux types de documents. La
+suppression de LibreOffice reste une décision indépendante et explicite via
+`SUPPRESSION_LIBREOFFICE`.
 
 Brave utilise son dépôt RPM officiel :
 
@@ -590,12 +597,10 @@ sudo dnf install gamemode gamemode.i686
 
 `steam` provient de RPM Fusion Nonfree ; le script doit donc vérifier ce dépôt avant l'installation. La variante 32 bits de GameMode est installée avec GameMode lorsque l'architecture `x86_64` et les dépôts multilib le permettent.
 
-Bottles et Heroic sont installés depuis Flathub :
+Heroic est installé depuis Flathub :
 
 ```bash
-flatpak install --system flathub \
-  com.usebottles.bottles \
-  com.heroicgameslauncher.hgl
+flatpak install --system flathub com.heroicgameslauncher.hgl
 ```
 
 Chaque commande dépend de sa clé de configuration. L'étape valide au minimum `rpm -q` ou `flatpak info`, `gamemoded -t`, `gamescope --version` et `lutris --version` lorsqu'ils sont applicables. Un échec d'un lanceur ne doit pas annuler les autres installations déjà validées.
@@ -903,7 +908,7 @@ Le script ne déclarera son exécution réussie qu'après les contrôles applica
 - [Bruno — installation](https://docs.usebruno.com/get-started/bruno-basics/download)
 - [ClamUI — projet officiel](https://github.com/linx-systems/clamui)
 - [ClamUI sur Flathub](https://flathub.org/apps/io.github.linx_systems.ClamUI)
-- [Bottles sur Flathub](https://flathub.org/apps/com.usebottles.bottles)
+- [ONLYOFFICE Desktop Editors sur Flathub](https://flathub.org/apps/org.onlyoffice.desktopeditors)
 - [Heroic sur Flathub](https://flathub.org/apps/com.heroicgameslauncher.hgl)
 - [RTK](https://github.com/rtk-ai/rtk)
 - [API GSettings de GLib](https://docs.gtk.org/gio/class.Settings.html)

@@ -12,9 +12,9 @@ Le script explique chaque action dans le terminal, demande confirmation pour les
 - mises à jour Fedora, RPM Fusion, Flathub et codecs multimédias ;
 - pilotes et accélération vidéo adaptés aux GPU AMD, Intel ou NVIDIA ;
 - outils GNOME, Zsh, Oh My Zsh et polices supplémentaires ;
-- Brave, Bitwarden, MPV, Pinta, Upscayl, RustDesk, ClamAV, ClamUI et Gear Lever ;
+- Brave, Bitwarden, MPV, Pinta, Upscayl, RustDesk, ClamAV, ClamUI, Gear Lever et ONLYOFFICE ;
 - Node.js 24 LTS avec NVM, pnpm, Docker Engine, VS Code, Bruno, Desktop Plus et RTK ;
-- Steam, Bottles, Lutris, Heroic, GameMode et Gamescope ;
+- Steam, Lutris, Heroic, GameMode et Gamescope ;
 - suppression configurable des applications Fedora préinstallées inutilisées, suivie de `dnf autoremove` ;
 - en option, le noyau CachyOS et ses addons expérimentaux.
 - reproduction sauvegardée et restaurable du profil GNOME 50 et de la configuration Zsh.
@@ -75,6 +75,7 @@ Les commentaires présents dans le fichier expliquent les conséquences des opti
 - `INSTALL_CLAMUI=true` active également ClamAV, car ClamUI est seulement une interface graphique ;
 - `INSTALL_DOCKER=true` installe Docker, démarre son service, exécute `hello-world` et ajoute l'utilisateur au groupe `docker` ;
 - `INSTALL_NODE=true` installe le dernier correctif de Node.js 24 LTS via NVM, puis pnpm ;
+- `INSTALL_ONLYOFFICE=true` installe ONLYOFFICE Desktop Editors depuis Flathub ; la suppression de LibreOffice reste contrôlée séparément par `SUPPRESSION_LIBREOFFICE` ;
 - `INSTALL_CACHYOS_ADDONS` et `HIDE_GRUB_AFTER_CACHYOS` sont ignorés lorsque `INSTALL_CACHYOS=false` ;
 - `APPLY_THEME`, `APPLY_GNOME_EXTENSIONS` et `APPLY_ZSH_CONFIG` peuvent être activés indépendamment ;
 - le lecteur vidéo Fedora est supprimé uniquement si MPV a réellement été installé ;

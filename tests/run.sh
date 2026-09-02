@@ -54,6 +54,7 @@ test_current_config() {
   parse_config_file "$PROJECT_DIR/config.ini"
   [[ "$CONFIG_VERSION" == "1" ]] || fail "CONFIG_VERSION"
   [[ "$INSTALL_CLAMUI" == "true" ]] || fail "INSTALL_CLAMUI"
+  [[ "$INSTALL_ONLYOFFICE" == "true" ]] || fail "INSTALL_ONLYOFFICE"
   [[ "$INSTALL_CACHYOS_ADDONS" == "true" ]] || fail "INSTALL_CACHYOS_ADDONS"
   [[ "$AUTO_CONFIRM_ALL_ACTIONS" == "true" ]] || fail "AUTO_CONFIRM_ALL_ACTIONS"
   [[ "$NVIDIA_DRIVER" == "auto" ]] || fail "NVIDIA_DRIVER"
@@ -101,6 +102,14 @@ test_shell_syntax() {
 
 test_static_guards() {
   local -a source_paths=("$PROJECT_DIR/fedora-setup.sh" "$PROJECT_DIR/lib" "$PROJECT_DIR/scripts" "$PROJECT_DIR/theme")
+  if grep -R -i -E 'INSTALL_BOTTLES|com\.usebottles\.bottles|install_bottles' \
+    "${source_paths[@]}" "$PROJECT_DIR/config.ini" "$PROJECT_DIR/README.md" "$PROJECT_DIR/PLANS.md" >/dev/null; then
+    fail "Bottles ne doit plus être proposé ni installé"
+  fi
+  grep -Fq 'run_if_enabled INSTALL_ONLYOFFICE apps.onlyoffice "ONLYOFFICE Desktop Editors" install_onlyoffice' \
+    "$PROJECT_DIR/lib/tasks.sh" || fail "ONLYOFFICE doit être intégré à l'étape applications"
+  grep -Fq 'validate_flatpak_if_enabled INSTALL_ONLYOFFICE org.onlyoffice.desktopeditors' \
+    "$PROJECT_DIR/lib/tasks.sh" || fail "le Flatpak ONLYOFFICE doit être validé"
   if grep -R -E 'source[[:space:]]+.*config\.ini|eval[[:space:]]' "${source_paths[@]}" >/dev/null; then
     fail "config.ini ne doit jamais être exécuté"
   fi
