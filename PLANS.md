@@ -1,6 +1,6 @@
-# Post-installation de Fedora Workstation 44 (GNOME)
+# Post-installation de Fedora Workstation 45 (GNOME)
 
-Ce projet fournit un script Bash de post-installation **personnel**, **défensif**, **rejouable** et destiné à **Fedora Workstation 44 avec GNOME**. Les informations techniques ont été vérifiées le **20 août 2026**.
+Ce projet fournit un script Bash de post-installation **personnel**, **défensif**, **rejouable** et destiné à **Fedora Workstation 45 avec GNOME**. Adaptation Fedora 45 vérifiée le **9 novembre 2026** (métadonnées des dépôts et archives GNOME ; essais système Fedora 45 restant à réaliser).
 
 La procédure cible l'édition RPM classique de Fedora sur `x86_64`. Elle ne doit pas être exécutée sur Fedora Silverblue, Kinoite ou une autre édition Atomic.
 
@@ -49,7 +49,7 @@ lib/tasks.sh                    étapes Fedora, applications et validations
 lib/cachyos.sh                  installation et validation CachyOS
 lib/theme.sh                    profil GNOME/Zsh, sauvegarde et validation
 theme/gsettings.conf            liste blanche des préférences GNOME
-theme/extensions.conf           manifeste GNOME 50 vérifié
+theme/extensions.conf           manifeste GNOME 51 vérifié
 theme/zsh/managed.zsh           configuration Zsh gérée
 scripts/select-cachy-kernel.sh  helper géré pour le noyau par défaut
 scripts/uninstall-cachyos.sh    retour autonome et prudent vers Fedora
@@ -68,7 +68,7 @@ La désinstallation CachyOS peut elle aussi être simulée avant exécution :
 
 Avant toute modification, le script devra vérifier :
 
-- `ID=fedora`, `VERSION_ID=44` et l'édition Workstation ;
+- `ID=fedora`, `VERSION_ID=45` et l'édition Workstation ;
 - que le système n'est pas géré par `rpm-ostree` ;
 - l'architecture, la session GNOME, la connectivité et l'espace disque ;
 - l'accès à `sudo`, sans lancer tout le script avec `sudo` ;
@@ -167,7 +167,7 @@ Fedora active déjà la compression Btrfs `zstd:1` par défaut. Le script ne doi
 | `INSTALL_MPV` | MPV | Fedora | `mpv` |
 | `INSTALL_BRAVE` | Brave | dépôt RPM officiel Brave | `brave-browser` |
 | `INSTALL_BITWARDEN` | Bitwarden | Flathub officiel | `com.bitwarden.desktop` |
-| `INSTALL_PINTA` | Pinta | Fedora | `pinta` |
+| `INSTALL_PINTA` | Pinta | Flathub (RPM existant conservé) | `com.github.PintaProject.Pinta` |
 | `INSTALL_UPSCAYL` | Upscayl | Flathub | `org.upscayl.Upscayl` |
 | `INSTALL_RUSTDESK` | RustDesk | Flathub | `com.rustdesk.RustDesk` |
 | `INSTALL_CLAMAV` | ClamAV | Fedora | `clamav clamav-freshclam` |
@@ -178,7 +178,7 @@ Fedora active déjà la compression Btrfs `zstd:1` par défaut. Le script ne doi
 MPV pourra être associé aux principaux types MIME vidéo et Brave défini comme navigateur par défaut. Le lecteur vidéo Fedora ne sera supprimé que si MPV est installé avec succès ; Firefox suit la même règle avec Brave.
 
 > [!IMPORTANT]
-> Bitwarden Desktop ne remplace pas le trousseau GNOME utilisé par le système et les applications. Le script ne doit pas supprimer `gnome-keyring`.
+> Bitwarden Desktop ne remplace pas le trousseau GNOME utilisé par le système et les applications. Fedora 45 utilise oo7 par défaut ; le script ne supprime ni ne remplace le fournisseur de secrets choisi par Fedora.
 
 ### Étape 5 — Environnement de travail
 
@@ -492,7 +492,7 @@ sudo dnf install xorg-x11-drv-nvidia-cuda xorg-x11-drv-nvidia-cuda-libs
 sudo dnf install vdpauinfo libva-nvidia-driver libva-utils vulkan-tools
 ```
 
-`libva-vdpau-driver` n'est pas utilisé : il n'est pas disponible dans les dépôts Fedora 44 vérifiés. `libva-nvidia-driver` est le paquet prévu pour la pile NVIDIA actuelle.
+`libva-vdpau-driver` n'est pas utilisé : il n'est pas disponible dans les dépôts Fedora 45 vérifiés. `libva-nvidia-driver` est le paquet prévu pour la pile NVIDIA actuelle.
 
 Avec Secure Boot actif, le script doit s'arrêter et guider l'utilisateur dans la création puis l'enrôlement d'une clé MOK selon la documentation RPM Fusion. Il ne doit pas désactiver Secure Boot.
 
@@ -532,7 +532,7 @@ sudo dnf install \
 flatpak install --system flathub com.mattjakeman.ExtensionManager
 ```
 
-`extension-manager` n'est pas un paquet RPM Fedora 44. Chaque extension GNOME doit être prévalidée et installée séparément afin qu'un paquet indisponible ne fasse pas échouer toute l'étape.
+`extension-manager` n'est pas un paquet RPM Fedora 45. Chaque extension GNOME doit être prévalidée et installée séparément afin qu'un paquet indisponible ne fasse pas échouer toute l'étape.
 
 ### Zsh et polices
 
@@ -543,14 +543,15 @@ sudo dnf install fira-code-fonts rsms-inter-fonts
 
 Oh My Zsh sera installé comme utilisateur courant avec `RUNZSH=no` et `CHSH=no`. Le script devra rendre ses modifications de `~/.zshrc` idempotentes, appliquer `ZSH_THEME="clean"`, charger les scripts Fedora des deux extensions Zsh, puis proposer `chsh`.
 
-Fira Sans n'est pas disponible comme RPM Fedora 44 sous le nom précédemment envisagé. La dernière release globale Mozilla, 4.202, ne contient que la variante Condensed ; le script épingle donc la dernière publication de Fira Sans classique, `4.106`, depuis [Mozilla Fira](https://github.com/mozilla/Fira/releases). Il enregistre la version et le checksum de l'archive, installe les fichiers dans `~/.local/share/fonts`, exécute `fc-cache -f` puis vérifie avec `fc-match "Fira Sans"`.
+Fira Sans n'est pas disponible comme RPM Fedora 45 sous le nom précédemment envisagé. La dernière release globale Mozilla, 4.202, ne contient que la variante Condensed ; le script épingle donc la dernière publication de Fira Sans classique, `4.106`, depuis [Mozilla Fira](https://github.com/mozilla/Fira/releases). Il enregistre la version et le checksum de l'archive, installe les fichiers dans `~/.local/share/fonts`, exécute `fc-cache -f` puis vérifie avec `fc-match "Fira Sans"`.
 
 ### Applications personnelles
 
 Les commandes suivantes sont filtrées selon les options `INSTALL_*`. Les applications Fedora sont installées séparément des Flatpak afin de pouvoir signaler précisément un échec :
 
 ```bash
-sudo dnf install mpv pinta clamav clamav-freshclam
+sudo dnf install mpv clamav clamav-freshclam
+flatpak install --system flathub com.github.PintaProject.Pinta
 
 flatpak install --system flathub \
   com.bitwarden.desktop \
@@ -774,7 +775,7 @@ Ces options sont indépendantes. `APPLY_GNOME_EXTENSIONS=true` exige une session
 
 ### Profil GNOME de référence
 
-Le premier profil versionné visera GNOME 50 et appliquera uniquement les valeurs suivantes après validation de l'existence du schéma, de la clé, de son type GVariant et de son caractère modifiable :
+Le premier profil versionné visera GNOME 51 et appliquera uniquement les valeurs suivantes après validation de l'existence du schéma, de la clé, de son type GVariant et de son caractère modifiable :
 
 | Schéma | Clé | Valeur cible |
 |---|---|---|
@@ -820,13 +821,13 @@ Le manifeste contiendra l'UUID attendu, la source, la version retenue, les versi
 | Dash to Dock | paquet Fedora | installer, configurer et activer |
 | Blur My Shell | paquet Fedora | installer, configurer et activer |
 | GSConnect | paquet Fedora | installer et activer sans importer d'association |
-| Coverflow Alt-Tab | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
-| Add to Desktop | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
-| Tiling Assistant | extensions.gnome.org | épingler une version compatible GNOME 50 et son checksum |
-| Desktop Icons NG | paquet Fedora si disponible, sinon extensions.gnome.org | prévalider la source puis installer et configurer |
+| Coverflow Alt-Tab | extensions.gnome.org | aucune publication GNOME 51 au 9 novembre 2026 ; signaler et réessayer après mise à jour du manifeste |
+| Add to Desktop | extensions.gnome.org | épingler une version compatible GNOME 51 et son checksum |
+| Tiling Assistant | extensions.gnome.org | épingler une version compatible GNOME 51 et son checksum |
+| Desktop Icons NG | extensions.gnome.org (RPM absent de Fedora 45) | archive GNOME 51 vérifiée, puis configuration |
 | Fedora Background Logo | composant Fedora existant | conserver sans imposer son activation |
 
-Les versions actuellement repérées comme compatibles GNOME 50 sont Blur My Shell 72, Tiling Assistant 54, Coverflow Alt-Tab 87 et Add to Desktop 16. Elles devront être revérifiées au moment de l'implémentation, puis figées dans le manifeste plutôt que résolues à chaque exécution.
+Les archives officielles GNOME 51 vérifiées sont AppIndicator 66, User Themes 78, Dash to Dock 110, Blur My Shell 77, GSConnect 74, Add to Desktop 17, Tiling Assistant 56 et Desktop Icons NG 105. Versions, identifiants de téléchargement et SHA-256 sont figés dans le manifeste. Coverflow Alt-Tab est conservé avec une source indisponible (`-|0|0|-`) ; aucune archive GNOME 50 n’est utilisée en repli. La clé Blur My Shell `dash-to-dock.corner-radius`, supprimée de son schéma, est retirée du profil.
 
 Les réglages versionnés couvriront au minimum :
 
@@ -917,3 +918,15 @@ Le script ne déclarera son exécution réussie qu'après les contrôles applica
 - [Papirus dans Fedora](https://packages.fedoraproject.org/pkgs/papirus-icon-theme/papirus-icon-theme/)
 - [CachyOS COPR pour Fedora](https://github.com/CachyOS/copr-linux-cachyos)
 - [Guide CachyOS pour Fedora — Linuxtricks](https://www.linuxtricks.fr/wiki/fedora-installer-le-noyau-de-cachyos-pour-de-meilleures-perfs-gaming)
+
+## Compatibilité Fedora 45 et état hérité
+
+Les constantes internes définissent Fedora 45 et GNOME 51. Le schéma `config.ini` reste en version 1. Le script ne réalise pas la mise à niveau Fedora.
+
+Avant toute réutilisation des checkpoints, `values/fedora_version` identifie la version du système cible. Un état hérité (version 44 ou absente) est copié dans `migrations/fedora-45.XXXXXX/` avant invalidation de `prepare.upgrade`, `repositories.*`, `desktop.gnome`, `apps.pinta`, `cleanup.preinstalled`, `theme.*` et `validation.*`. Les autres checkpoints, valeurs et sauvegardes sont conservés. La simulation masque en mémoire les checkpoints invalidés, sans les modifier sur disque. Une transition CachyOS inachevée bloque cette migration.
+
+Les dépôts Brave, Docker et VS Code sont reconnus par leur identifiant via DNF5, indépendamment de leur fichier sous `/usr` ou `/etc`. Une erreur de lecture DNF5 bloque l’ajout. Les définitions locales restent sous `/etc/yum.repos.d` ; celles fournies par les paquets ne sont pas réécrites.
+
+L’amorçage RPM Fusion installe `distribution-gpg-keys` depuis Fedora, importe ses clés Free/Nonfree Fedora 45 et utilise `localpkg_gpgcheck=1` pour les RPM de release téléchargés. Les installations depuis les dépôts tiers conservent leur vérification de signature.
+
+Sources : [dépôts sous /usr](https://fedoraproject.org/wiki/Changes/RelocateRpmRepoConfigsToUsr), [signatures RPM](https://fedoraproject.org/wiki/Changes/Enforcing_signature_checking_by_default), [GNOME 51](https://discourse.gnome.org/t/gnome-51-released/38820), [Pinta officiel](https://www.pinta-project.com/releases/). Les changements sans incidence directe sur le script (installateur, versions de langages système, API Podman non utilisée) ne déclenchent pas de configuration supplémentaire.

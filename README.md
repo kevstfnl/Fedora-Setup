@@ -1,11 +1,11 @@
 # Fedora Setup
 
-Script de post-installation interactif pour **Fedora Workstation 44 avec GNOME**. Il permet de préparer une installation Fedora, d'ajouter les applications choisies et de configurer un environnement bureautique, de développement et de jeu depuis un simple fichier `config.ini`.
+Script de post-installation interactif pour **Fedora Workstation 45 avec GNOME**. Il permet de préparer une installation Fedora, d'ajouter les applications choisies et de configurer un environnement bureautique, de développement et de jeu depuis un simple fichier `config.ini`.
 
 Le script explique chaque action dans le terminal, demande confirmation pour les opérations sensibles et conserve un journal ainsi que des points de reprise.
 
 > [!WARNING]
-> Ce projet cible uniquement Fedora Workstation 44 classique sur `x86_64`. Il ne prend pas en charge Silverblue, Kinoite ni les autres éditions Atomic. Ne lancez jamais le script avec `sudo` : il demandera lui-même les droits nécessaires.
+> Ce projet cible uniquement Fedora Workstation 45 classique sur `x86_64`. Il ne prend pas en charge Silverblue, Kinoite ni les autres éditions Atomic. Ne lancez jamais le script avec `sudo` : il demandera lui-même les droits nécessaires.
 
 ## Ce que le script peut installer
 
@@ -17,7 +17,7 @@ Le script explique chaque action dans le terminal, demande confirmation pour les
 - Steam, Lutris, Heroic, GameMode et Gamescope ;
 - suppression configurable des applications Fedora préinstallées inutilisées, suivie de `dnf autoremove` ;
 - en option, le noyau CachyOS et ses addons expérimentaux.
-- reproduction sauvegardée et restaurable du profil GNOME 50 et de la configuration Zsh.
+- reproduction sauvegardée et restaurable du profil GNOME 51 et de la configuration Zsh.
 
 La spécification technique complète et les choix d'implémentation sont disponibles dans [`PLANS.md`](PLANS.md).
 
@@ -25,7 +25,7 @@ La spécification technique complète et les choix d'implémentation sont dispon
 
 Avant de commencer, vérifiez que vous disposez de :
 
-- Fedora Workstation 44 avec GNOME sur une machine `x86_64` ;
+- Fedora Workstation 45 avec GNOME sur une machine `x86_64` ;
 - une connexion Internet fonctionnelle ;
 - au moins 5 Gio disponibles sur la partition racine ;
 - un compte utilisateur autorisé à utiliser `sudo` ;
@@ -75,6 +75,7 @@ Les commentaires présents dans le fichier expliquent les conséquences des opti
 - `INSTALL_CLAMUI=true` active également ClamAV, car ClamUI est seulement une interface graphique ;
 - `INSTALL_DOCKER=true` installe Docker, démarre son service, exécute `hello-world` et ajoute l'utilisateur au groupe `docker` ;
 - `INSTALL_NODE=true` installe le dernier correctif de Node.js 24 LTS via NVM, puis pnpm ;
+- `INSTALL_PINTA=true` installe Pinta depuis Flathub (`com.github.PintaProject.Pinta`), son RPM étant absent des dépôts Fedora 45 ; un RPM déjà installé reste conservé ;
 - `INSTALL_ONLYOFFICE=true` installe ONLYOFFICE Desktop Editors depuis Flathub ; la suppression de LibreOffice reste contrôlée séparément par `SUPPRESSION_LIBREOFFICE` ;
 - `INSTALL_CACHYOS_ADDONS` et `HIDE_GRUB_AFTER_CACHYOS` sont ignorés lorsque `INSTALL_CACHYOS=false` ;
 - `APPLY_THEME`, `APPLY_GNOME_EXTENSIONS` et `APPLY_ZSH_CONFIG` peuvent être activés indépendamment ;
@@ -104,7 +105,7 @@ APPLY_ZSH_CONFIG=true
 
 `APPLY_THEME` configure notamment Inter, Fira Code, Papirus-Dark, le mode sombre et désactive le collage par clic milieu. Le profil utilise une liste blanche : les écrans, souris, pavés tactiles, emplacements météo, appareils et certificats GSConnect ne sont jamais copiés.
 
-`APPLY_GNOME_EXTENSIONS` installe AppIndicator, Dash to Dock, Blur My Shell, GSConnect, Coverflow Alt-Tab, Add to Desktop, Tiling Assistant et Desktop Icons NG. Le script préfère les paquets Fedora ; les extensions absentes des dépôts utilisent une archive officielle GNOME 50 dont la version et le SHA-256 sont figés. Une déconnexion/reconnexion est nécessaire après l'ajout de nouvelles extensions.
+`APPLY_GNOME_EXTENSIONS` installe AppIndicator, Dash to Dock, Blur My Shell, GSConnect, Add to Desktop, Tiling Assistant et Desktop Icons NG. Coverflow Alt-Tab reste demandé, mais aucune archive officielle compatible GNOME 51 n’est disponible au 9 novembre 2026 : il est signalé sans bloquer le profil et pourra être réessayé après actualisation du manifeste. Le script préfère les paquets Fedora ; les extensions absentes des dépôts utilisent une archive officielle GNOME 51 dont la version et le SHA-256 sont figés. Une déconnexion/reconnexion est nécessaire après l'ajout de nouvelles extensions.
 
 `APPLY_ZSH_CONFIG` conserve le contenu personnel de `~/.zshrc` hors d'un bloc clairement délimité. Le module géré charge Oh My Zsh avec le thème `clean`, les plugins disponibles, NVM, fzf, zoxide, l'autosuggestion et la coloration syntaxique.
 
@@ -160,6 +161,16 @@ Pendant l'exécution :
 - les suppressions, remplacements de paquets et changements sensibles suivent `AUTO_CONFIRM_ALL_ACTIONS` ;
 - une erreur bloque l'étape concernée sans effacer les opérations déjà validées ;
 - le script indique lorsqu'une reconnexion ou un redémarrage est nécessaire.
+
+## Passer de Fedora 44 à Fedora 45
+
+Effectuez d’abord la mise à niveau Fedora séparément : ce script ne la réalise pas et refuse désormais Fedora 44. Sur une installation Fedora 45 neuve, utilisez la procédure normale.
+
+Sur une machine mise à niveau, le premier lancement sauvegarde les anciens checkpoints et valeurs dans `migrations/fedora-45.XXXXXX/`, à l’intérieur du répertoire d’état. Un état sans version enregistrée est considéré comme hérité de Fedora 44. Le script rejoue la mise à jour initiale, les dépôts/codecs/pilotes, les outils GNOME, Pinta, le nettoyage et le thème ; les autres checkpoints d’applications et les sauvegardes restent conservés. `--dry-run` décrit cette migration et les étapes à rejouer sans modifier les checkpoints.
+
+Une transition CachyOS inachevée, y compris une désinstallation en attente de redémarrage, bloque la migration sans effacer son état. Terminez ou annulez ce parcours avec la version Fedora 44 du projet avant d’utiliser la version adaptée. Les états CachyOS terminés restent conservés.
+
+Les dépôts existants sont reconnus par DNF5, y compris ceux distribués sous `/usr/share/dnf5/repos.d`. Les ajouts locaux restent sous `/etc`. Les RPM de dépôt RPM Fusion sont vérifiés avec les clés du paquet Fedora `distribution-gpg-keys`. Le trousseau système oo7 est géré par Fedora et reste indépendant de Bitwarden.
 
 ## Reprendre une exécution
 
@@ -353,7 +364,7 @@ lib/tasks.sh                    étapes Fedora et applications
 lib/cachyos.sh                  parcours CachyOS
 lib/theme.sh                    profil GNOME, extensions, Zsh et sauvegardes
 theme/gsettings.conf            liste blanche des préférences GNOME
-theme/extensions.conf           versions et sommes des extensions GNOME 50
+theme/extensions.conf           versions et sommes des extensions GNOME 51
 theme/zsh/managed.zsh           module Zsh installé dans le profil utilisateur
 scripts/select-cachy-kernel.sh  sélection contrôlée du noyau
 scripts/uninstall-cachyos.sh    désinstallation de CachyOS

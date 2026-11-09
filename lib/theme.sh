@@ -133,7 +133,7 @@ validate_theme_profiles() {
       return 1
     }
     if ((version_tag == 0)); then
-      [[ "$version" == "0" && "$checksum" == "-" && "$package" != "-" ]] || {
+      [[ "$version" == "0" && "$checksum" == "-" ]] || {
         die "$THEME_EXTENSIONS_PROFILE:$line_number a une source incomplète."
         return 1
       }
@@ -163,8 +163,8 @@ theme_preflight() {
     done
     local shell_major
     shell_major="$(gnome-shell --version | awk '{print $NF}' | cut -d. -f1)"
-    [[ "$shell_major" == "50" ]] || {
-      die "Le profil theme exige GNOME Shell 50 ; version détectée : ${shell_major:-inconnue}."
+    [[ "$shell_major" == "$TARGET_GNOME_VERSION" ]] || {
+      die "Le profil theme exige GNOME Shell $TARGET_GNOME_VERSION ; version détectée : ${shell_major:-inconnue}."
       return 1
     }
     if [[ "${XDG_CURRENT_DESKTOP:-}" != *GNOME* ]]; then
@@ -348,7 +348,7 @@ install_one_theme_extension() {
 
   if ! theme_installed_extension_is_compatible "$uuid" "$version"; then
     ((version_tag > 0)) || {
-      die "$name est absent et ne possède aucun repli officiel dans le manifeste."
+      log_warn "$name : aucune archive officielle compatible GNOME $TARGET_GNOME_VERSION dans le manifeste ; extension à réessayer après sa mise à jour."
       return 1
     }
     confirm_action safe "Installer l'extension GNOME $name $version ?" || {

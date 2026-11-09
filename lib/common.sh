@@ -7,6 +7,9 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+readonly TARGET_FEDORA_VERSION="45"
+readonly TARGET_GNOME_VERSION="51"
+
 readonly PROJECT_NAME="fedora-post-install"
 readonly MANAGED_MARKER="FEDORA_POST_INSTALL_MANAGED"
 
@@ -18,6 +21,7 @@ STATE_STEPS_DIR="${STATE_STEPS_DIR:-}"
 STATE_VALUES_DIR="${STATE_VALUES_DIR:-}"
 LOG_FILE="${LOG_FILE:-}"
 RUNTIME_TMP="${RUNTIME_TMP:-}"
+declare -a FEDORA_INVALIDATED_STEPS=()
 
 color_enabled() {
   [[ -t 1 && -z "${NO_COLOR:-}" ]]
@@ -311,7 +315,69 @@ state_mark_step() {
 }
 
 state_step_done() {
+  local invalidated
+  for invalidated in "${FEDORA_INVALIDATED_STEPS[@]}"; do
+    [[ "$1" != "$invalidated" ]] || return 1
+  done
   [[ -f "$STATE_STEPS_DIR/$1" && ! -L "$STATE_STEPS_DIR/$1" ]]
+}
+
+migrate_fedora_checkpoints() {
+  local previous pending path step backup
+  previous="$(state_get fedora_version)"
+  [[ "$previous" != "$TARGET_FEDORA_VERSION" ]] || return 0
+  [[ -z "$previous" || "$previous" == "44" ]] || {
+    die "Version Fedora inattendue dans l'état : $previous. Aucun checkpoint modifié."
+    return 1
+  }
+
+  pending="$(state_get resume_required)"
+  if [[ "$pending" == *cachyos* ]] ||
+    { state_step_done cachyos.kernel-installed && ! state_step_done cachyos.uninstalled &&
+      [[ "$(state_get cachyos_complete false)" != "true" ]]; }; then
+    die "Transition CachyOS héritée de Fedora 44 inachevée (${pending:-installation}). Aucun checkpoint modifié. Terminez ou annulez ce parcours avec la version Fedora 44 du projet avant de relancer."
+    return 1
+  fi
+
+  FEDORA_INVALIDATED_STEPS=()
+  for path in "$STATE_STEPS_DIR"/*; do
+    [[ -e "$path" || -L "$path" ]] || continue
+    step="${path##*/}"
+    case "$step" in
+      prepare.upgrade | repositories.* | desktop.gnome | apps.pinta | cleanup.preinstalled | theme.* | validation.*)
+        [[ -f "$path" && ! -L "$path" ]] || {
+          die "Checkpoint non régulier : $path"
+          return 1
+        }
+        FEDORA_INVALIDATED_STEPS+=("$step")
+        ;;
+    esac
+  done
+
+  # Pas d'historique sur une installation neuve. Les répertoires sont créés
+  # par init_runtime ; seul un état antérieur doit être archivé.
+  if [[ -n "$(find "$STATE_STEPS_DIR" "$STATE_VALUES_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    log_info "Migration des checkpoints Fedora ${previous:-44 (état sans version)} vers $TARGET_FEDORA_VERSION."
+    if is_true "$DRY_RUN"; then
+      log_info "[dry-run] Sauvegarde de steps/ et values/ ; checkpoints à rejouer : ${FEDORA_INVALIDATED_STEPS[*]:-aucun}."
+    else
+      [[ ! -L "$STATE_ROOT/migrations" && ! -L "$STATE_STEPS_DIR" && ! -L "$STATE_VALUES_DIR" ]] || {
+        die "Répertoire d'état symbolique refusé pour la migration."
+        return 1
+      }
+      mkdir -p -m 0700 "$STATE_ROOT/migrations"
+      backup="$(mktemp -d "$STATE_ROOT/migrations/fedora-${TARGET_FEDORA_VERSION}.XXXXXX")" || return 1
+      cp -a -- "$STATE_STEPS_DIR" "$STATE_VALUES_DIR" "$backup/" || return 1
+      log_info "État antérieur sauvegardé : $backup"
+      for step in "${FEDORA_INVALIDATED_STEPS[@]}"; do
+        rm -f -- "$STATE_STEPS_DIR/$step" || return 1
+      done
+    fi
+  fi
+  state_set fedora_version "$TARGET_FEDORA_VERSION" || return 1
+  if ! is_true "$DRY_RUN"; then
+    FEDORA_INVALIDATED_STEPS=()
+  fi
 }
 
 run_step_once() {
@@ -377,6 +443,30 @@ package_installed() {
 
 package_available() {
   dnf repoquery --available --latest-limit 1 "$1" 2>/dev/null | grep -q .
+}
+
+ensure_rpm_repository() {
+  local repository_id="$1" repofile_url="$2" local_content="${3:-}"
+  local repositories
+  # DNF5 lit aussi /usr/share/dnf5/repos.d et les overrides de /etc.
+  # Une erreur de lecture ne doit jamais être interprétée comme une absence.
+  repositories="$(dnf --quiet repo list --all)" || {
+    die "Impossible de lire les dépôts DNF5 pour $repository_id."
+    return 1
+  }
+  if awk -v id="$repository_id" '$1 == id {found=1} END {exit !found}' <<<"$repositories"; then
+    log_ok "Dépôt déjà configuré : $repository_id"
+    return 0
+  fi
+  if [[ -n "$repofile_url" ]]; then
+    run_cmd "Ajout du dépôt $repository_id" sudo dnf config-manager addrepo --from-repofile "$repofile_url"
+  else
+    [[ "$repository_id" == "code" && -n "$local_content" ]] || {
+      die "Définition locale de dépôt inattendue : $repository_id"
+      return 1
+    }
+    install_managed_content /etc/yum.repos.d/vscode.repo 0644 "$local_content"
+  fi
 }
 
 run_safe_dnf() {

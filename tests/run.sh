@@ -318,14 +318,16 @@ test_extension_validation_does_not_require_shell_cache() {
     '{' \
     '  "uuid": "test-extension@example.com",' \
     '  "version": 72,' \
-    '  "shell-version": ["50"]' \
+    '  "shell-version": ["51"]' \
     '}' >"$extension_dir/metadata.json"
 
+  gnome-shell() { printf 'GNOME Shell 51.1\n'; }
   theme_installed_extension_is_compatible "$uuid" 72 ||
     fail "la validation doit lire metadata.json sans dépendre du cache GNOME Shell"
   assert_fails "une version utilisateur différente du manifeste est refusée" \
     theme_installed_extension_is_compatible "$uuid" 71
   HOME="$original_home"
+  unset -f gnome-shell
   ok "les extensions fraîchement installées sont validées directement sur disque"
 }
 
@@ -434,6 +436,191 @@ test_extension_activation_queue_is_recognized() {
   ok "l'activation différée de Tiling Assistant est reconnue"
 }
 
+test_fedora_identity() (
+  validate_system_identity fedora 45 workstation x86_64 false || fail "Fedora 45 doit être acceptée"
+  assert_fails "Fedora 44 est refusée" validate_system_identity fedora 44 workstation x86_64 false
+  assert_fails "Atomic est refusé même avec une variante Workstation" validate_system_identity fedora 45 workstation x86_64 true
+  assert_fails "aarch64 est refusé" validate_system_identity fedora 45 workstation aarch64 false
+  assert_fails "KDE est refusé" validate_system_identity fedora 45 kde x86_64 false
+  assert_fails "une autre distribution est refusée" validate_system_identity other 45 workstation x86_64 false
+)
+
+test_fedora_state_migration() (
+  STATE_ROOT="$TEST_TMP/migration"
+  STATE_STEPS_DIR="$STATE_ROOT/steps"
+  STATE_VALUES_DIR="$STATE_ROOT/values"
+  LOG_FILE="$TEST_TMP/migration.log"
+  mkdir -p "$STATE_STEPS_DIR" "$STATE_VALUES_DIR" "$STATE_ROOT/theme/backups/ancien"
+  DRY_RUN=false
+  migrate_fedora_checkpoints >/dev/null
+  [[ "$(state_get fedora_version)" == 45 && ! -d "$STATE_ROOT/migrations" ]] || fail "état neuf"
+  rm "$STATE_VALUES_DIR/fedora_version"
+  for step in prepare.upgrade repositories.rpmfusion desktop.gnome apps.pinta cleanup.preinstalled theme.backup development.node apps.brave cachyos.default-hook; do
+    state_mark_step "$step"
+  done
+  state_set theme_backup_dir "$STATE_ROOT/theme/backups/ancien"
+  state_set cachyos_complete true
+  state_set resume_required final
+  DRY_RUN=true
+  migrate_fedora_checkpoints >/dev/null
+  [[ -f "$STATE_STEPS_DIR/prepare.upgrade" && ! -d "$STATE_ROOT/migrations" && -z "$(state_get fedora_version)" ]] || fail "simulation modifie les checkpoints"
+  ! state_step_done prepare.upgrade || fail "simulation doit montrer les étapes à rejouer"
+  state_step_done apps.brave || fail "simulation conserve les applications"
+  DRY_RUN=false
+  migrate_fedora_checkpoints >/dev/null
+  [[ "$(state_get fedora_version)" == 45 ]] || fail "version migrée"
+  for step in prepare.upgrade repositories.rpmfusion desktop.gnome apps.pinta cleanup.preinstalled theme.backup; do
+    ! state_step_done "$step" || fail "checkpoint hérité conservé : $step"
+  done
+  for step in development.node apps.brave cachyos.default-hook; do
+    state_step_done "$step" || fail "checkpoint indépendant perdu : $step"
+  done
+  [[ "$(state_get resume_required)" == final && -d "$(state_get theme_backup_dir)" ]] || fail "valeurs de restauration perdues"
+  local -a backups=("$STATE_ROOT"/migrations/fedora-45.*)
+  [[ ${#backups[@]} == 1 && -f "${backups[0]}/steps/theme.backup" && -f "${backups[0]}/values/cachyos_complete" ]] || fail "sauvegarde de migration"
+  state_mark_step prepare.upgrade
+  migrate_fedora_checkpoints >/dev/null
+  state_step_done prepare.upgrade || fail "migration répétée doit être sans effet"
+)
+
+test_fedora_migration_guards() (
+  STATE_ROOT="$TEST_TMP/migration-guards"
+  STATE_STEPS_DIR="$STATE_ROOT/steps"
+  STATE_VALUES_DIR="$STATE_ROOT/values"
+  LOG_FILE="$TEST_TMP/migration-guards.log"
+  mkdir -p "$STATE_STEPS_DIR" "$STATE_VALUES_DIR"
+  DRY_RUN=false
+  state_set fedora_version 44
+  state_mark_step prepare.upgrade
+  state_set resume_required cachyos-kernel
+  assert_fails "une transition CachyOS héritée bloque la migration" migrate_fedora_checkpoints
+  [[ "$(state_get fedora_version)" == 44 && -f "$STATE_STEPS_DIR/prepare.upgrade" && ! -d "$STATE_ROOT/migrations" ]] || fail "transition modifiée"
+  state_set resume_required uninstall-cachyos-fedora-boot
+  assert_fails "une désinstallation CachyOS en attente est préservée" migrate_fedora_checkpoints
+  state_set resume_required ""
+  state_mark_step cachyos.kernel-installed
+  assert_fails "une installation CachyOS incomplète sans marqueur bloque aussi" migrate_fedora_checkpoints
+  state_set cachyos_complete true
+  ln -s "$STATE_STEPS_DIR/prepare.upgrade" "$STATE_STEPS_DIR/theme.gnome"
+  assert_fails "un checkpoint symbolique n'est pas effacé" migrate_fedora_checkpoints
+  rm "$STATE_STEPS_DIR/theme.gnome"
+  migrate_fedora_checkpoints >/dev/null
+  [[ "$(state_get fedora_version)" == 45 ]] || fail "migration explicite 44 vers 45"
+)
+
+test_repository_detection() (
+  LOG_FILE="$TEST_TMP/repositories.log"
+  local mutations=0 output="" broken=false
+  dnf() {
+    [[ "$*" == "--quiet"$'\n'"repo"$'\n'"list"$'\n'"--all" ]] || fail "lecture DNF5 attendue"
+    [[ "$broken" != true ]] || return 1
+    printf '%s\n' "$output"
+  }
+  run_cmd() { ((mutations += 1)); }
+  install_managed_content() { ((mutations += 1)); }
+  for location in /usr/share/dnf5/repos.d /etc/yum.repos.d; do
+    output="brave-browser Brave enabled ($location)"
+    ensure_rpm_repository brave-browser https://example.org/brave.repo >/dev/null
+    output="docker-ce-stable Docker disabled ($location)"
+    ensure_rpm_repository docker-ce-stable https://example.org/docker.repo >/dev/null
+    output="code VSCode enabled ($location)"
+    ensure_rpm_repository code "" contenu >/dev/null
+  done
+  [[ "$mutations" == 0 ]] || fail "un dépôt existant ne doit pas être ajouté en double"
+  output="code-insiders Code enabled"
+  ensure_rpm_repository code "" contenu >/dev/null
+  [[ "$mutations" == 1 ]] || fail "identifiant exact attendu"
+  output=""
+  ensure_rpm_repository brave-browser https://example.org/brave.repo >/dev/null
+  [[ "$mutations" == 2 ]] || fail "dépôt absent non ajouté"
+  broken=true
+  assert_fails "une erreur DNF5 ne déclenche pas un ajout" ensure_rpm_repository code "" contenu
+  [[ "$mutations" == 2 ]] || fail "écriture après erreur DNF5"
+)
+
+test_extension_archive_compatibility() (
+  RUNTIME_TMP="$TEST_TMP"
+  LOG_FILE="$TEST_TMP/archive-validation.log"
+  DRY_RUN=false
+  local archive="$TEST_TMP/extension.zip"
+  make_archive() {
+    python3 - "$archive" "$1" <<'PY'
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as archive:
+    archive.writestr('metadata.json', json.dumps({'uuid': 'test@example.com', 'version': 1, 'shell-version': [sys.argv[2]]}))
+PY
+  }
+  make_archive 51
+  theme_validate_extension_archive "$archive" test@example.com 1 51 || fail "archive GNOME 51"
+  assert_fails "un UUID inattendu est refusé" theme_validate_extension_archive "$archive" autre@example.com 1 51
+  assert_fails "une version inattendue est refusée" theme_validate_extension_archive "$archive" test@example.com 2 51
+  make_archive 50
+  assert_fails "une archive GNOME 50 est refusée" theme_validate_extension_archive "$archive" test@example.com 1 51
+  printf 'archive altérée' >"$archive"
+  assert_fails "une archive altérée est refusée" theme_validate_extension_archive "$archive" test@example.com 1 51
+  package_available() { return 1; }
+  package_installed() { return 1; }
+  theme_installed_extension_is_compatible() { return 1; }
+  assert_fails "une extension sans publication compatible reste réessayable" install_one_theme_extension test@example.com Test - 0 0 - true
+  make_archive 51
+  confirm_action() { return 0; }
+  run_cmd() { shift; "$@"; }
+  curl() { cp "$archive" "${@: -1}"; }
+  gnome-extensions() { fail "une archive altérée ne doit pas être installée"; }
+  local wrong_checksum
+  printf -v wrong_checksum '%064d' 0
+  assert_fails "un SHA-256 incorrect bloque l'installation" install_one_theme_extension test@example.com Test - 1 1 "$wrong_checksum" true
+)
+
+test_gnome_target() (
+  APPLY_THEME=true
+  APPLY_GNOME_EXTENSIONS=false
+  APPLY_ZSH_CONFIG=false
+  local shell_version=51.1
+  require_command() { return 0; }
+  ensure_dnf_packages() { return 0; }
+  gnome-shell() { printf 'GNOME Shell %s\n' "$shell_version"; }
+  theme_preflight >/dev/null || fail "GNOME 51 doit être accepté"
+  shell_version=50.5
+  assert_fails "le profil refuse GNOME 50" theme_preflight
+)
+
+test_rpmfusion_bootstrap_signatures() (
+  LOG_FILE="$TEST_TMP/rpmfusion.log"
+  DRY_RUN=true
+  local calls=""
+  package_installed() { return 1; }
+  rpm() { printf '45\n'; }
+  ensure_dnf_packages() { calls+="package:$1;"; }
+  run_cmd() { calls+="$(render_command "$@");"; }
+  run_safe_dnf() { calls+="$(render_command "$@");"; }
+  enable_rpmfusion >/dev/null
+  [[ "$calls" == package:distribution-gpg-keys\;* ]] || fail "clés Fedora avant RPM Fusion"
+  [[ "$calls" == *"rpm --import /usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-free-fedora-45"* ]] || fail "clé Free"
+  [[ "$calls" == *"rpm --import /usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-nonfree-fedora-45"* ]] || fail "clé Nonfree"
+  [[ "$calls" == *"--setopt=localpkg_gpgcheck=1 install"* ]] || fail "signature des RPM distants"
+  calls=""
+  run_cmd() { return 1; }
+  assert_fails "un échec d'import de clé bloque RPM Fusion" enable_rpmfusion
+  [[ "$calls" != *"localpkg_gpgcheck"* ]] || fail "transaction après échec d'import"
+)
+
+test_pinta_source() (
+  local installed=false source=""
+  package_installed() { [[ "$1" == pinta && "$installed" == true ]]; }
+  ensure_flatpak_app() { source="$1"; }
+  install_pinta >/dev/null
+  [[ "$source" == com.github.PintaProject.Pinta ]] || fail "Pinta doit utiliser Flathub"
+  source=""
+  installed=true
+  install_pinta >/dev/null
+  [[ -z "$source" ]] || fail "le RPM Pinta existant doit être conservé"
+)
+
+for isolated_test in test_fedora_identity test_fedora_state_migration test_fedora_migration_guards test_repository_detection test_extension_archive_compatibility test_gnome_target test_rpmfusion_bootstrap_signatures test_pinta_source; do
+  "$isolated_test" >"$TEST_TMP/$isolated_test.log"
+  ok "$isolated_test"
+done
 test_current_config
 test_invalid_configs
 test_entrypoints

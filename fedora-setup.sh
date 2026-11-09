@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/lib/cachyos.sh"
 # shellcheck source=lib/theme.sh
 source "$SCRIPT_DIR/lib/theme.sh"
 
-readonly PROGRAM_VERSION="1.2.0"
+readonly PROGRAM_VERSION="1.3.0"
 
 CONFIG_PATH="$SCRIPT_DIR/config.ini"
 RESUME=false
@@ -172,7 +172,7 @@ print_boolean_choice() {
 print_execution_plan() {
   log_step "Plan d'exécution"
   log_info "Configuration : $CONFIG_PATH"
-  log_info "Fedora ciblée : Workstation 44 x86_64"
+  log_info "Fedora ciblée : Workstation $TARGET_FEDORA_VERSION x86_64"
   log_info "Mode dry-run : $DRY_RUN"
   log_info "Reprise : $RESUME"
   log_info "Confirmation automatique des actions sûres : $AUTO_CONFIRM_SAFE_ACTIONS"
@@ -289,6 +289,9 @@ main() {
 
   init_runtime main
   log_info "Fedora Setup $PROGRAM_VERSION démarre."
+  require_non_root
+  require_supported_system
+  migrate_fedora_checkpoints
   reconcile_final_reboot_checkpoint "$RESUME"
   check_resume_contract
   print_execution_plan

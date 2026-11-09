@@ -56,7 +56,7 @@ ensure_optional_dnf_package() {
   elif package_available "$package"; then
     ensure_dnf_packages "$package"
   else
-    log_warn "Paquet optionnel indisponible pour Fedora 44 : $package"
+    log_warn "Paquet optionnel indisponible pour Fedora $TARGET_FEDORA_VERSION : $package"
   fi
 }
 
@@ -116,6 +116,22 @@ detect_secure_boot() {
   state_set secure_boot "$SECURE_BOOT_STATE"
 }
 
+validate_system_identity() {
+  local os_id="$1" version_id="$2" variant_id="$3" architecture="$4" atomic="$5"
+  [[ "$os_id" == "fedora" ]] || { die "Distribution non prise en charge : ${os_id:-inconnue}."; return 1; }
+  [[ "$version_id" == "$TARGET_FEDORA_VERSION" ]] || { die "Fedora $TARGET_FEDORA_VERSION est requise ; version détectée : ${version_id:-inconnue}."; return 1; }
+  [[ "$atomic" == "false" ]] || { die "Une édition Atomic/rpm-ostree n'est pas prise en charge."; return 1; }
+  [[ "$variant_id" == "workstation" ]] || { die "Fedora Workstation est requise ; variante détectée : ${variant_id:-inconnue}."; return 1; }
+  [[ "$architecture" == "x86_64" ]] || { die "Architecture x86_64 requise ; architecture détectée : $architecture."; return 1; }
+}
+
+require_supported_system() {
+  local atomic=false
+  [[ ! -e /run/ostree-booted ]] || atomic=true
+  validate_system_identity "$(read_os_release_value ID)" "$(read_os_release_value VERSION_ID)" \
+    "$(read_os_release_value VARIANT_ID)" "$(uname -m)" "$atomic"
+}
+
 system_preflight() {
   log_step "Prévalidation du système"
   require_non_root
@@ -125,17 +141,7 @@ system_preflight() {
     require_command "$command_name"
   done
 
-  local os_id version_id variant_id architecture
-  os_id="$(read_os_release_value ID)"
-  version_id="$(read_os_release_value VERSION_ID)"
-  variant_id="$(read_os_release_value VARIANT_ID)"
-  architecture="$(uname -m)"
-
-  [[ "$os_id" == "fedora" ]] || die "Distribution non prise en charge : ${os_id:-inconnue}."
-  [[ "$version_id" == "44" ]] || die "Fedora 44 est requise ; version détectée : ${version_id:-inconnue}."
-  [[ "$variant_id" == "workstation" ]] || die "Fedora Workstation est requise ; variante détectée : ${variant_id:-inconnue}."
-  [[ "$architecture" == "x86_64" ]] || die "Architecture x86_64 requise ; architecture détectée : $architecture."
-  [[ ! -e /run/ostree-booted ]] || die "Une édition Atomic/rpm-ostree n'est pas prise en charge."
+  require_supported_system
   rpm -q gnome-shell >/dev/null 2>&1 || die "GNOME Shell n'est pas installé."
 
   if is_true "$DRY_RUN"; then
@@ -273,14 +279,26 @@ enable_rpmfusion() {
 
   local fedora_release
   fedora_release="$(rpm -E %fedora)"
-  [[ "$fedora_release" == "44" ]] || die "Valeur rpm %fedora inattendue : $fedora_release."
+  [[ "$fedora_release" == "$TARGET_FEDORA_VERSION" ]] || die "Valeur rpm %fedora inattendue : $fedora_release."
 
-  confirm_action safe "Activer RPM Fusion Free et Nonfree pour Fedora 44 ?" || return 1
+  confirm_action safe "Activer RPM Fusion Free et Nonfree pour Fedora $TARGET_FEDORA_VERSION ?" || return 1
   local -a release_urls=(
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_release}.noarch.rpm"
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${fedora_release}.noarch.rpm"
   )
-  run_safe_dnf "Installation des dépôts RPM Fusion" install "${release_urls[@]}"
+  # Les clés sont distribuées par Fedora, avant de charger les RPM de release.
+  # localpkg_gpgcheck couvre aussi les RPM téléchargés directement par DNF.
+  ensure_dnf_packages distribution-gpg-keys || return 1
+  local repository key_file
+  for repository in free nonfree; do
+    key_file="/usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-${repository}-fedora-${fedora_release}"
+    if ! is_true "$DRY_RUN" && [[ ! -f "$key_file" ]]; then
+      die "Clé RPM Fusion absente : $key_file"
+      return 1
+    fi
+    run_cmd "Import de la clé RPM Fusion $repository fournie par Fedora" sudo rpm --import "$key_file" || return 1
+  done
+  run_safe_dnf "Installation des dépôts RPM Fusion" --setopt=localpkg_gpgcheck=1 install "${release_urls[@]}" || return 1
 
   if ! is_true "$DRY_RUN"; then
     package_installed rpmfusion-free-release || die "RPM Fusion Free n'a pas été installé."
@@ -608,9 +626,7 @@ stage_desktop() {
 install_brave() {
   if ! package_installed brave-browser; then
     ensure_dnf_packages dnf-plugins-core
-    if [[ ! -f /etc/yum.repos.d/brave-browser.repo ]]; then
-      run_cmd "Ajout du dépôt RPM officiel Brave" sudo dnf config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
-    fi
+    ensure_rpm_repository brave-browser https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
     ensure_dnf_packages brave-browser
   fi
   if command -v xdg-settings >/dev/null 2>&1; then
@@ -619,7 +635,15 @@ install_brave() {
 }
 
 install_bitwarden() { ensure_flatpak_app com.bitwarden.desktop; }
-install_pinta() { ensure_dnf_packages pinta; }
+install_pinta() {
+  # Le RPM Pinta n'est plus fourni par les dépôts Fedora 45.
+  # Conserver une installation RPM existante après une mise à niveau.
+  if package_installed pinta; then
+    log_ok "Pinta RPM est déjà installé."
+    return 0
+  fi
+  ensure_flatpak_app com.github.PintaProject.Pinta
+}
 install_upscayl() { ensure_flatpak_app org.upscayl.Upscayl; }
 install_rustdesk() { ensure_flatpak_app com.rustdesk.RustDesk; }
 install_onlyoffice() { ensure_flatpak_app org.onlyoffice.desktopeditors; }
@@ -833,10 +857,8 @@ install_docker_engine() {
     run_sensitive_dnf "Suppression des conflits Docker" remove "${installed_conflicts[@]}"
   fi
 
-  if [[ ! -f /etc/yum.repos.d/docker-ce.repo ]]; then
-    ensure_dnf_packages dnf-plugins-core
-    run_cmd "Ajout du dépôt officiel Docker" sudo dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
-  fi
+  ensure_dnf_packages dnf-plugins-core
+  ensure_rpm_repository docker-ce-stable https://download.docker.com/linux/fedora/docker-ce.repo
 
   ensure_dnf_packages docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   run_cmd "Activation du service Docker" sudo systemctl enable --now docker
@@ -869,7 +891,7 @@ EOF
 
   if ! package_installed code; then
     run_cmd "Import de la clé Microsoft" sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
-    install_managed_content /etc/yum.repos.d/vscode.repo 0644 "$repo_content"$'\n'
+    ensure_rpm_repository code "" "$repo_content"$'\n'
     ensure_dnf_packages code
   fi
 }
@@ -955,7 +977,9 @@ stage_validation() {
   fi
 
   validate_rpm_if_enabled INSTALL_BRAVE brave-browser
-  validate_rpm_if_enabled INSTALL_PINTA pinta
+  if [[ "$INSTALL_PINTA" == "true" ]] && ! package_installed pinta; then
+    validate_flatpak_if_enabled INSTALL_PINTA com.github.PintaProject.Pinta
+  fi
   validate_rpm_if_enabled INSTALL_MPV mpv
   validate_rpm_if_enabled INSTALL_CLAMAV clamav
   validate_flatpak_if_enabled INSTALL_BITWARDEN com.bitwarden.desktop
